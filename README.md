@@ -8,7 +8,7 @@ is now possible with the FFPortfolios() method.
 pip install PortSort
 ```
 
-# How to use
+# How to use ...
 The PortSort_Example.py file is used to demonstrate the functionality of the PortSort class and its methods. 
 
 A panel dataset of the characteristics of 800 random US domiciled and traded securities for 2018-2020 and a 
