@@ -1427,6 +1427,7 @@ class PortSort:
         if len(market_cap_cols) == 0:
             # No turnover is calculated
             self.FFturnover = None
+            self.FFturnover_raw = None
         # Check if market_cap_cols has the correct information
         if len(market_cap_cols) == 2:
             
@@ -1495,7 +1496,7 @@ class PortSort:
                 else:
                     df_s[x] = df_s[port_name].apply(lambda y: 1 if y == x else 0) 
                 # Next period portfolio holding
-                df_s[x+'_for1'] = df_s[x].shift(-1).fillna(value = 0)  
+                df_s[x+'_for1'] = df_s.groupby(self.entity_id)[x].apply(lambda x: x.shift(-1)).fillna(value = 0)  
        
             """
             STEP 2 : Old and new weights in a period t    
@@ -1517,8 +1518,10 @@ class PortSort:
                 # Start_weights : weights at the start of the period t
                 df_s['Start_weights'] = df_s.groupby([port_name, self.time_id])[self.weight_col].transform(lambda x: x/x.sum() )
                 # Old weights : weights at the end of the period t before rebalancing
-                df_s['Old_weights'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
-                df_s['Old_weights'].fillna(value = 0, inplace = True)
+                df_s['Old_weights_raw'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
+                df_s['Old_weights_raw'].fillna(value = 0, inplace = True)
+                # Normalize
+                df_s['Old_weights'] = df_s.groupby([port_name, self.time_id])['Old_weights_raw'].transform(lambda x: x/x.sum())
                 # New weights : weights at the end of the period t after rebalancing
                 df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].apply(lambda x: x.shift(-1))
                 df_s['New_weights'].fillna(value = 0, inplace = True)
@@ -1527,8 +1530,10 @@ class PortSort:
                 # Start_weights : weights at the start of the period t
                 df_s['Start_weights'] = df_s.groupby([port_name, self.time_id])[self.entity_id].transform(lambda x: x/x.count() )
                 # Old weights : weights at the end of the period t before rebalancing
-                df_s['Old_weights'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
-                df_s['Old_weights'].fillna(value = 0, inplace = True)
+                df_s['Old_weights_raw'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
+                df_s['Old_weights_raw'].fillna(value = 0, inplace = True)
+                # Normalize
+                df_s['Old_weights'] = df_s.groupby([port_name, self.time_id])['Old_weights_raw'].transform(lambda x: x/x.sum())
                 # New weights : weights at the end of the period t after rebalancing
                 df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].apply(lambda x: x.shift(-1))
                 df_s['New_weights'].fillna(value = 0, inplace = True)
