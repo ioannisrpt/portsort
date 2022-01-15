@@ -4,8 +4,6 @@
 # Author: Ioannis Ropotos
 
 """
-
-
 Class: 
 ------
     PortSort
@@ -18,8 +16,6 @@ Class:
         TripleSort()
         SingleSortAgg()
         FFPortfolios()
-
-
 """
 
 
@@ -431,7 +427,7 @@ class PortSort:
 
     # Single Sorting 
     def SingleSort(self, firm_characteristic, lagged_periods = None,  n_portfolios = None, \
-                   quantile_filter = None, calibrate_cols = None, save_SingleSort = True):
+                   quantile_filter = None, calibrate_cols = None, save_SingleSort = False):
         """
         Method that sorts entities based on only one characteristic using 
         the Sort() method. 
@@ -536,7 +532,7 @@ class PortSort:
     # Double Sorting
     def DoubleSort(self, firm_characteristics, lagged_periods = None, n_portfolios = None, \
                    quantile_filters = [None, None], conditional = None, calibrate_cols = None, \
-                   save_DoubleSort = True):
+                   save_DoubleSort = False):
         
         """
         Method that sorts entities based on two characteristics. The sort can be 
@@ -733,7 +729,7 @@ class PortSort:
         
     # Triple Sorting
     def TripleSort(self, firm_characteristics, lagged_periods, n_portfolios, quantile_filters = [None, None, None], \
-                   conditional = None, calibrate_cols = None, save_TripleSort = True):
+                   conditional = None, calibrate_cols = None, save_TripleSort = False):
         
         """
         Method that sorts entities based on three characteristics. The sort can be 
@@ -1224,6 +1220,8 @@ class PortSort:
             self.fig_num = fig_num
             self.ax_num = ax_num
     
+
+        
     
     
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1235,7 +1233,7 @@ class PortSort:
     # by their characteristics. 
     def FFPortfolios(self, ret_data, ret_time_id, FFcharacteristics, FFlagged_periods, \
                  FFn_portfolios, FFquantile_filters, FFdir = None, FFconditional = False, weight_col = None, \
-                 return_col = 'RET', FFsave = True):
+                  return_col = 'RET', market_cap_cols = [], FFsave = False):
         """
         
         Parameters
@@ -1269,6 +1267,14 @@ class PortSort:
         return_col : str, Default='RET'
             The column of ret_data that corresponds to returns. Default value is 'RET' which is the 
             name of return for CRSP data.
+        market_cap_cols : list, default=[]
+            A list with two elements:
+                i. First element: start of the current period market capitalization of the entity
+                ii. Second element : end of the current period market capitalization of the entity
+            If this list is not empty, then the turnover of the 
+            portfolios will be calculated. The current and the previous end-of-period market cap will be used
+            to get the total return of the stock so that end-of-period weights of the portfolio strategy can
+            be calculated and incorporated in the turnover formula.
         FFsave : boolean, Default=True
             If True, save results to FFdir.
             
@@ -1293,6 +1299,7 @@ class PortSort:
         self.FFconditional = FFconditional
         self.weight_col = weight_col
         self.return_col = return_col
+        self.market_cap_cols = market_cap_cols
         self.FFsave = FFsave
         
         
@@ -1324,10 +1331,12 @@ class PortSort:
             FFclass.SingleSort(firm_characteristic = self.FFcharacteristics[0], n_portfolios = self.FFn_portfolios[0], \
                             lagged_periods = self.FFlagged_periods[0],  quantile_filter = self.FFquantile_filters[0],\
                             calibrate_cols = FFcalibrate_col, save_SingleSort = self.FFsave) 
-            
-            
-            # Isolate only the essential columns for portfolio assignment
+              
+            # Name of the single sorted portfolio
             port_name = FFclass.portfolio
+            
+                                                
+            # Isolate only the essential columns for portfolio assignment
             # Include or not weighting column
             if self.weight_col is not None:
                 ports = FFclass.single_sorted[[self.time_id, self.entity_id, self.weight_col, port_name]].copy()    
@@ -1394,7 +1403,170 @@ class PortSort:
             save_ret = 'RET_' + save_str
             save_num = 'NUM_STOCKS_' + save_str
                 
+
+
+
+        # --------
+        # TURNOVER 
+        # --------
+        
+        """
+        Turnover definition
+        -------------------
+        
+        I use the portfolio turnover definition of equation 13 of DeMiguel et al. (2009).
+        The paper can be found at:
+        https://pubsonline.informs.org/doi/10.1287/mnsc.1080.0986    
+        
+        I assume that the turnover of period t corresponds to the construction 
+        of the portfolio of the next period t+1. Thus I rebalance at the end of 
+        period t before going to period t+1. 
+        """
+        
+        # Check if market_cap_cols is empty
+        if len(market_cap_cols) == 0:
+            # No turnover is calculated
+            self.FFturnover = None
+        # Check if market_cap_cols has the correct information
+        if len(market_cap_cols) == 2:
+            
+            # Start of the period cap
+            cap_start = market_cap_cols[0]
+            self.cap_start = cap_start
+            # End of the period cap
+            cap_end = market_cap_cols[1]
+            self.cap_end = cap_end
+            
+            """
+            STEP 0 : Isolate only the essential columns
+            -------------------------------------------
+            We do not need all the columns of the characteristic sorted dataframe resulted from
+            the definition of the FFclass. We only need to isolate the time-entity pair, the weight column (if any)
+            and the market_cap_cols
+            """
+            
+            # Union of weight column and market capitilization columns
+            turnover_cols = list(set( [self.weight_col] + market_cap_cols ))
+        
+            
+            if self.weight_col is not None:
+                if len(FFcharacteristics) == 1:
+                    df_s = FFclass.single_sorted[ [self.time_id, self.entity_id, port_name] + turnover_cols].copy()
+                if len(FFcharacteristics) == 2:
+                    df_s = FFclass.double_sorted[ [self.time_id, self.entity_id, port_name] + turnover_cols].copy()
+                if len(FFcharacteristics) == 3:
+                    df_s = FFclass.triple_sorted[ [self.time_id, self.entity_id, port_name] + turnover_cols].copy()
+            else:            
+                if len(FFcharacteristics) == 1:
+                    df_s = FFclass.single_sorted[[self.time_id, self.entity_id, port_name] + market_cap_cols].copy()
+                if len(FFcharacteristics) == 2:
+                    df_s = FFclass.double_sorted[[self.time_id, self.entity_id, port_name] + market_cap_cols].copy()
+                if len(FFcharacteristics) == 3:
+                    df_s = FFclass.triple_sorted[[self.time_id, self.entity_id, port_name] + market_cap_cols].copy()
+
+            
+            
+
+
+            """
+            STEP 1 : Portfolio columns for holdings 
+            -----------------------------------------
+            The current and next period holdings of the constructed portfolios are tracked
+            for each period at the entity level. Two sets of columns are created. The first set
+            is the current period holdings denoted by the names of the portfolios and it has a value
+            of 1 if an entity belongs to that portfolio and 0 otherwise. The second set is the next 
+            period holdings denoted by the names of the portfolios augmented with the suffix '_for1'
+            (forward one period ahead) and it has the value of 1 if an entity belongs to the portfolio
+            in the next period and 0 otherwise.
+            """
+            
+            portfolio_cols = list(df_s[port_name].value_counts().sort_index().index.values)
+            # Convert to string
+            if len(FFcharacteristics) == 1:
+                portfolio_cols = [ str(int(x)) for x in portfolio_cols]
+            else:
+                portfolio_cols = [ x for x in portfolio_cols]            
+            
+            # Define the portfolio holding columns
+            for x in portfolio_cols:
+                # End of period portfolio holding
+                if len(FFcharacteristics) == 1:            
+                    df_s[x] = df_s[port_name].apply(lambda y: 1 if y == float(x) else 0)
+                else:
+                    df_s[x] = df_s[port_name].apply(lambda y: 1 if y == x else 0) 
+                # Next period portfolio holding
+                df_s[x+'_for1'] = df_s[x].shift(-1).fillna(value = 0)  
+       
+            """
+            STEP 2 : Old and new weights in a period t    
+            ------------------------------------------
+            First, the entity weights of each portfolio at the start of each period t are explicitly
+            computed and denoted as 'Start_weights'. Then, the current and previous end-of-period t market 
+            capitalization of the entity as in market_cap_cols, are used to construct the 'Old_weights' as 
+            'Start_weights'*( current end-of-period cap)/(previous end-of-period cap). The 'Old_weights' column
+            contains the weights in the portfolios after the period t has passed and these are the weigths
+            we need to rebalance to hold the portfolio for the next period t+1. The 'New_weights' are 
+            the one-period lagged 'Start_weights' of period t+1 that are going to be used to construct 
+            the portfolio strategy at then end of period t for the duration of period t+1. 
+            """
+
+            # -----------------------------------------
+              
+            # Not equal-weighting scheme
+            if self.weight_col is not None:
+                # Start_weights : weights at the start of the period t
+                df_s['Start_weights'] = df_s.groupby([port_name, self.time_id])[self.weight_col].transform(lambda x: x/x.sum() )
+                # Old weights : weights at the end of the period t before rebalancing
+                df_s['Old_weights'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
+                df_s['Old_weights'].fillna(value = 0, inplace = True)
+                # New weights : weights at the end of the period t after rebalancing
+                df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].apply(lambda x: x.shift(-1))
+                df_s['New_weights'].fillna(value = 0, inplace = True)
+            # Equal-weighting scheme
+            else:
+                # Start_weights : weights at the start of the period t
+                df_s['Start_weights'] = df_s.groupby([port_name, self.time_id])[self.entity_id].transform(lambda x: x/x.count() )
+                # Old weights : weights at the end of the period t before rebalancing
+                df_s['Old_weights'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
+                df_s['Old_weights'].fillna(value = 0, inplace = True)
+                # New weights : weights at the end of the period t after rebalancing
+                df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].apply(lambda x: x.shift(-1))
+                df_s['New_weights'].fillna(value = 0, inplace = True)
+                
+                
+
+
+            """
+            STEP 3 - Weight change from period t to the next period t+1
+            ------------------------------------------------------------
+            We now track the weight change of each entity in the portfolios of FFclass. The formula is 
+            New_weights*(current period t portfolio holding) - Old_weights*(next period t+1 portfolio holding).
+            There are 3 distinct cases:
+                1. Entity i stays in the same portfolio from period t to t+1: w_{t+1} - w_{t+}
+                2. Entity i is added in the portfolio from period t to t+1 : w_{t+1} - 0 = w_{t+1}
+                3. Entity i is removed from the portfolio in period t+1 : 0 - w_{t+} = - w_{t+}
+            
+            """
+                        
+            # Define the weight change of an entity from end of period t to the start of period t+1
+            for x in portfolio_cols:
+                df_s[x+'_dWeight'] = df_s['New_weights']*df_s[x+'_for1']  - df_s['Old_weights']*df_s[x]
+                
+
+
+            """
+            STEP 4 - Turnover dataframe
+            ----------------------------
+            Define the portfolio turnover dataframe  of period t as the sum of the absolute value of the 'dWeight'
+            columns.
+            """
     
+            turnover = df_s.groupby(by = self.time_id)[[x+'_dWeight' for x in portfolio_cols]].apply(lambda x: x.abs().sum())   
+            # Rename the columns
+            turnover.columns = [x.replace('_dWeight', '') for x in turnover.columns]
+            self.FFturnover = turnover    
+            # Raw turnover dataframe
+            self.FFturnover_raw = df_s
         
         
         # Number of stocks in a portfolio
