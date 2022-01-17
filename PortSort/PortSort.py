@@ -323,10 +323,10 @@ class PortSort:
         
         self.entity_id = entity_id if entity_id is not None else 'PERMCO'
         self.time_id = time_id if time_id is not None else 'Date'
-        # Create a copy of the input dataframe df. Sort values of df
-        # by ['entity_id', 'time_id'] to ensure that lagging or forwarding
+        # Create a copy of the input dataframe df. Drop duplicate values and 
+        # sort by ['entity_id', 'time_id'] to ensure that lagging or forwarding
         # a firm_characteristic results in the correct sorting characteristic
-        self.df = df.sort_values(by = [self.entity_id, self.time_id]).copy(deep = True)
+        self.df = df.drop_duplicates(subset = [self.entity_id, self.time_id], ignore_index = True).sort_values(by = [self.entity_id, self.time_id]).copy(deep = True)
         self.prefix_name = prefix_name if prefix_name is not None else ''
         self.save_dir = save_dir if save_dir is not None else os.getcwd()
 
@@ -1110,19 +1110,13 @@ class PortSort:
             else:
                 cal_col = self.firm_characteristic
                 
-           
-            
-
             
             # Align the lagged firm_characteristic and the aggregated variable
             DF[cal_col] = DF.groupby(by = self.entity_id)[self.firm_characteristic].shift(periods = self.lagged_periods)
-            
-
-           
+                       
 
             # Delete observations where both the lagged firm characteristic and aggragated var are missing.
-            # ---------------------------------------------------------------------------------------------
-    
+            # ---------------------------------------------------------------------------------------------    
             # This operation ensures that only entities with a non-missing agg_var will be used in the 
             # sorting procedure. That way in a year, the number of stocks in a given portfolio will be the same
             # as only observations with a non-missing value of firm characteristic (lagged) and agg_var will be used in the 
@@ -1131,14 +1125,9 @@ class PortSort:
             DF.dropna(subset = [cal_col, self.agg_var] + self.add_cal_cols, how = 'any', inplace = True)
             DF.reset_index(drop = True, inplace = True)
 
-            
-
-            
             port_char = self.Sort(df = DF, firm_characteristic = cal_col, lagged_periods = 0, \
                                 n_portfolios = self.n_portfolios, quantile_fitler = self.quantile_filter, \
                                  prefix_name = self.agg_var + '_agg')
-                
-            
                 
         else:
             
