@@ -1517,7 +1517,7 @@ class PortSort:
             # Equal-weighting scheme
             else:
                 # Start_weights : weights at the start of the period t
-                df_s['Start_weights'] = df_s.groupby([port_name, self.time_id])[self.entity_id].transform(lambda x: x/x.count() )
+                df_s['Start_weights'] = df_s.groupby([port_name, self.time_id])[self.entity_id].transform(lambda x: 1/x.count() )
                 # Old weights : weights at the end of the period t before rebalancing
                 df_s['Old_weights_raw'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
                 df_s['Old_weights_raw'].fillna(value = 0, inplace = True)
