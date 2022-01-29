@@ -1299,11 +1299,20 @@ class PortSort:
         FFclass = PortSort(df = firmchars, entity_id = self.entity_id, time_id = self.time_id, \
                            prefix_name = self.prefix_name, save_dir = self.save_dir)
     
-        # weight_col and return_col as the calibration columns
-        if self.weight_col is not None:   
-            FFcalibrate_col = [self.weight_col, self.return_col]
+        # weight_col as the calibration column if not None
+        # return_col is added to the calibration columns only when the
+        # portfolio rebalancing and the stock retrun frequency are the same.
+        if self.time_id == self.ret_time_id:            
+            if self.weight_col is not None: 
+                FFcalibrate_col = [self.weight_col, self.return_col]
+            else:
+                FFcalibrate_col = [self.return_col]
         else:
-            FFcalibrate_col = [self.return_col]
+            if self.weight_col is not None: 
+                FFcalibrate_col = [self.weight_col]
+            else:
+                FFcalibrate_col = None
+                
 
 
         # -----------------------------------
