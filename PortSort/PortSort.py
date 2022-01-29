@@ -1299,11 +1299,11 @@ class PortSort:
         FFclass = PortSort(df = firmchars, entity_id = self.entity_id, time_id = self.time_id, \
                            prefix_name = self.prefix_name, save_dir = self.save_dir)
     
-        # weight_col as the calibration column
+        # weight_col and return_col as the calibration columns
         if self.weight_col is not None:   
-            FFcalibrate_col = [self.weight_col]
+            FFcalibrate_col = [self.weight_col, self.return_col]
         else:
-            FFcalibrate_col = None
+            FFcalibrate_col = [self.return_col]
 
 
         # -----------------------------------
