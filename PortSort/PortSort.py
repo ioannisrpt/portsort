@@ -1358,7 +1358,7 @@ class PortSort:
                             conditional = self.FFconditional, calibrate_cols = FFcalibrate_col, save_DoubleSort = self.FFsave)   
             
             # Isolate only the essential columns for portfolio assignment
-            port_name = FFclass.double_sorted.columns[-1]
+            port_name = 'Double_sort_portfolio'
             # Include or not weighting column
             if self.weight_col is not None:
                 ports = FFclass.double_sorted[[self.time_id, self.entity_id, self.weight_col, port_name]].copy()
@@ -1383,7 +1383,7 @@ class PortSort:
                             conditional = self.FFconditional, calibrate_cols = FFcalibrate_col, save_TripleSort = self.FFsave)
     
             # Isolate only the essential columns for portfolio assignment
-            port_name = FFclass.triple_sorted.columns[-1]
+            port_name = 'Triple_sort_portfolio'
             # Include or not weighting column
             if self.weight_col is not None:
                 ports = FFclass.triple_sorted[[self.time_id, self.entity_id, self.weight_col, port_name]].copy()  
