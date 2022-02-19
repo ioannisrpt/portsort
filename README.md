@@ -23,8 +23,7 @@ The 'FirmCharacteristics2018.csv' dataset has 8 columns:
 3. 'CAP' : Market Capitalization of the last business day of the current year
 4. 'CAP_W' :  Market Capitalization of the last business day of the previous year
 5. 'RET_total' : Total return (including dividends) of a stock in a year
-6. 'SPREAD_PC_median' : Daily median of the ratio of the Bid-Ask spread over the closing price of the stock
-                      in a year
+6. 'SPREAD_PC_median' : Daily median of the ratio of the Bid-Ask spread over the closing price of the stock in a year
 7. 'FF30' : Fama-French 30 industry classification of a security based on its SIC.
 8. 'EXCHCD' : Market exchange in which the security is traded. 1 is NYSE, 2 is AMEX and 3 is NASDAQ.
 
@@ -36,11 +35,6 @@ The 'STOCKmonthlydata2019.csv' dataset has 4 columns:
 
 
 ```python
-
-# -*- coding: utf-8 -*-
-# Python 3.7.7
-# Pandas 1.0.5
-# Author: Ioannis Ropotos
 
 """
 Examples of the PortSort class and its methods.
@@ -274,12 +268,6 @@ portchar.FFPortfolios(ret_data = crspm,
 print(portchar.FFportfolios.head(30))
 print(portchar.FFnum_stocks)    
 print(portchar.FFturnover)
-
-
-
-
-
-
 
 
 ```
