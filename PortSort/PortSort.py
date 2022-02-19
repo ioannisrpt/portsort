@@ -16,6 +16,24 @@ Class:
         TripleSort()
         SingleSortAgg()
         FFPortfolios()
+        
+        Version 0.2.8 (_v4) - 19 Feb 2022
+        
+        i. All processes are vectorized. All unecessary apply lambda operations have been 
+        replaced. The sort function and the PortSort sorting methods are now 10 times faster. 
+        FFPortfolios() method is now 3-5 times faster.
+        
+        
+        Version 0.2.7 (_v3) - 14 Feb 2022
+
+        
+        i. Conditional sorts can now be in the form of TF=[True, False], TT, FT, FF in the triple 
+           sort procedure.          
+        ii. Fixed a potential bug in calibrating the return_col in FFportfolios().
+        iii. WeightedMean function ignores nan values in both the aggregated column x 
+            and the weight column weights. 
+           
+            
 """
 
 
@@ -27,50 +45,21 @@ import matplotlib.pyplot as plt
 
 
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#         SOME USEFUL FUNCTIONS                         #
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#         WEIGHTED MEAN IN A DATAFRAME                #
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
+# Weighted mean ignoring nan values 
 def WeightedMean(x, df, weights):
     """
     Define the weighted mean function
     """
-    return np.average(x, weights = df.loc[x.index, weights])
-
-
-
-def save_df(df, filename, save_dir = os.getcwd()):
-    # true filename
-    name = filename +'.csv'
-    # Full file path
-    file_path = os.path.join(save_dir, name)
-    # save as csv 
-    df.to_csv(file_path)
-    
-    
-# Function that converts any column of a dataframe that conntains the string 'date' 
-# to a datetime object. 
-# Implicitly, datetime format is inferred from data.
-def ConvertDate(df):
-    """
-    Parameters:
-    ------------
-    df: dataframe
-        input dataframe
-        
-    Returns:
-    --------
-    df_new: dataframe
-        transformed dataframe
-    """
-    for name in df.columns:
-        if 'date' in name.lower():
-            # Conert to datetime object of monthly period
-            df[name] = pd.to_datetime(df[name])
-    return df
-
-
+    # Mask both the values and the associated weights
+    ma_x = np.ma.MaskedArray(x, mask = np.isnan(x))
+    w = df.loc[x.index, weights]
+    ma_w = np.ma.MaskedArray(w, mask = np.isnan(w))
+    return np.average(ma_x, weights = ma_w)
 
 
 
@@ -79,9 +68,8 @@ def ConvertDate(df):
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-def PrepareForSorting(df, firm_characteristic, n_portfolios = 10, \
-                      lagged_periods = 1, entity_id = 'PERMNO', time_id = 'Date', \
-                      quantile_filter = None):
+def PrepareForSorting(df, entity_id, time_id, firm_characteristic, lagged_periods, \
+                      n_portfolios, quantile_filter = None):
     
     
     """
@@ -89,35 +77,35 @@ def PrepareForSorting(df, firm_characteristic, n_portfolios = 10, \
     -----------
     df : dataframe
         Input dataframe that contains information in a panel format.
+    entity_id : string
+        This is the column that corresponds to the entities.
+    time_id : string
+        time_id denotes the time dimension the panel dataset. 
     firm_characteristic : string
         Sort portfolios based on firm characteristic. It must exist in the column of df.
-    n_portfolios : integer or array, default=10
-        If n_portfolios is integer, then quantiles will be calculated so that n_portfolios 
-        will be constructed.
+    lagged_periods : integer
+        The value of the firm characteristic used for sorting would be the value lagged_periods before.
+    n_portfolios : integer or array
+        If n_portfolios is integer, then quantiles will be calculated as 1/n_portfolios so 
+        that n_portfolios will be constructed.
         If n_portfolios is an array, then quantiles will be calculated according to the array.
-    lagged_periods : integer, Default=1
-        The value of the firm characteristic used for sorting would be the value lagged_periods before. 
-    entity_id : string, Default='PERMNO'
-        This is the column that corresponds to the entities/stocks. 
-    time_id : string, Default='Date'
-        time_id denotes the time dimension the panel dataset. Default is 'Date'
-    quantile_filter : list = [column_name, value]
+   quantile_filter : list = [column_name, value]
         quantile_filter is a list with the first element being the name of the column and the second
         being the value for which the quantiles should be calculated only. For example, if
         quantile_filter = ['EXCHCD', 1], then only NYSE stocks will be used for the estimation of 
         quantiles. If it is None, all entities will be used.
-
-        
+       
     Returns:
     ---------
-    df_new : dataframe
-        The new dataframe contains:
-            1. A new column, 'firm_characteristic_end', that is the firm_char of a 
-               stock of the previous period/year. Rows that have null values in 
-               'firm_characteristic_end' are dropped.
-            2. Quantiles of firm-characteristic in order to construct n_portfolios portfolios.
-            
-            
+    df: dataframe
+        The returned df contains the new column, 'firm_characteristic_end', that is 
+        the adjusted characteristic used for sorting. Rows that have null values in 
+        'firm_characteristic_end' are dropped.
+        
+    trait_q: series
+        Series with index = (time_id, probability), value = quantiles and 
+        name = firm_characteristic_end
+                       
     """
     
     # For simplicity, we denote the firm characteristic with a different name 
@@ -131,10 +119,10 @@ def PrepareForSorting(df, firm_characteristic, n_portfolios = 10, \
     if lagged_periods > 0:
         trait_end = trait + '_lag%d' % lagged_periods
     elif lagged_periods < 0:
-        trait_end = trait + '_forw%d' % np.abs(lagged_periods)
+        trait_end = trait + '_for%d' % np.abs(lagged_periods)
     else:
         trait_end = trait
-    # PERMNO is used as the firm identifier instead of cusip_8 or cusip_8_valide (no difference)
+    # Adjust the characteristic for sorting by entity_id
     df[trait_end] = df.groupby(by = entity_id)[trait].shift(periods = lagged_periods)
     # Drop rows with null values in 'trait_end'. This is the only criterion by which 
     # null values are dropped. Only 'trait_end' matters for sorting.
@@ -145,11 +133,10 @@ def PrepareForSorting(df, firm_characteristic, n_portfolios = 10, \
     # Quantiles for each year based on trait_end and n_portfolios 
     # -----------------------------------------------------------
 
-    
     # Check if n_portfolios is integer 
     if isinstance(n_portfolios, int):
         q_range = np.arange(start = 0, stop = 1, step = 1/n_portfolios)
-    # Else it is array
+    # Else it is array and it is used as it is
     else:
         q_range = n_portfolios
         
@@ -163,100 +150,65 @@ def PrepareForSorting(df, firm_characteristic, n_portfolios = 10, \
         fil_col = quantile_filter[0]
         fil_value = quantile_filter[1]
         trait_q = df[df[fil_col] == fil_value].groupby(by = [time_id])[trait_end].quantile(q_range, interpolation = 'linear')
-    
-    
+        
 
     return df, trait_q
 
 
-
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#           ASSIGN QUANTILE TO A STOCK             #
+#           ASSIGN QUANTILE TO AN ENTITY           #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Function that assigns the quantile portfolio for a particular firm based 
-# on the firm-characterestic chosen and the quantiles. 
-
-def AssignValue(one_value, quantiles):
+def AssignQuantiles(data, quantiles):
     
     """
     Parameters
     ----------
-    one_value : float
-        Value of the firm characteristic that is compared with the quantiles 
-            so that the firm is assigned to a portfolio.
+    data : Series 
+        A series that contains the values of the firm characteristic 
+        to be sorted (for a given period time_id).
     quantiles : Series
-        A Series that with index = quantiles, values = q-quantiles
-        and name = trait_lag%d % lagged_periods
+        A Series that contains the quantiles that are assigned to each entity. 
+        Index = probability, value = quantile, name = sorted characteristics
+
 
     Returns
     -------
-    portfolio : integer
-        'portfolio' takes the value of 1,2,3,..,n_portfolios if a firm 
-        has a characteristic that lies between the corresponding quantiles. 
-            
+    data_q : Series
+        Series of same length as data that contains the quantile portfolio 
+        for each entity based on quantiles.
 
     """
     
-    # Number of portfolios
+    # Number of portfolios/total quantiles
     n_portfolios = len(quantiles)
     
-    # Initialize portfolio assignment
-    portfolio = 0
+    # Create a new series just like data. Fill it with the maximum portfolio value
+    data_q = pd.Series(data = n_portfolios, index = data.index, name = data.name)
+
     
-    for interval in range(1,n_portfolios):
-        if one_value <= quantiles.iloc[interval]:
-            portfolio = int(interval) # Avoid portfolios denoted as 2.0 or 1.0 
-            break
-        # If a stock has not been assigned a portfolio with the previous loop, then
-        # it belongs to the maximum quantile.
-        if portfolio == 0:
-            portfolio = n_portfolios
-                
-    return portfolio
+    # Iterate through the quantile values and assign them to entities.
+    # The intervals (q_{i-1}, q_{i}] for i = 1 to n_portfolios are defined.
+    for interval in range(1, n_portfolios): 
+        # The left side of the interval becomes equality so that the 
+        # minimum value can be included in that first quantile.
+        if interval == 1:
+            mask1 = quantiles.iloc[interval - 1] <= data    
+        else:
+           mask1 = quantiles.iloc[interval - 1] < data   
+        mask2 = data <= quantiles.iloc[interval]
+        data_q.loc[ mask1 & mask2 ] = int(interval)
 
-
-
-# Function that takes as input a series (quantiles of a firm characteristic) and assign a value 
-# depending where a value belongs.
-
-def AssignQuantile(quantiles, data):
-    
-    """
-    Parameters
-    ----------
-    quantiles : Series
-        A Series that contains the quantiles that define intervals 
-        from which the quantile portfolio is assigned.
-    data : Series 
-        A series that contains the value of the firm characteristic 
-        to be sorted on a given date/year.
-
-    Returns
-    -------
-    data_new : Series
-        Returns a series of sorted stocks on portfolios.
-    
-
-    """
-    
-    # Extend to the whole series data
-    data_new = data.apply(lambda x: AssignValue(x, quantiles))
-    
-        
-    return data_new
-
-
+    return data_q
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#         ASSIGN THE QUANTILE PORTFOLIO TO A STOCK           #
+#        ASSIGN THE QUANTILE PORTFOLIO TO AN ENTITY          #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 # Function that assigns the quantile of the portfolio for a firm characteristic
-def AssignPortfolio(df, df_q, time_id = 'Date', save_dir = os.getcwd()):
+def AssignPortfolio(df, df_q, time_id):
     
     """
     Parameters
@@ -264,21 +216,19 @@ def AssignPortfolio(df, df_q, time_id = 'Date', save_dir = os.getcwd()):
     df : dataframe
         Input dataframe that contains all relevant data in a panel format.
     df_q : dataframe
-        Dataframe that contains the quantiles of the firm characteristic 
-        for each year that are used to sort firms/stocks into portfolios.
-        The firm characteristic is included in the name of df_q; 
-        firm characteristic = df_q.name
-    time_id : string, Default='Date'
+        A Series that contains the quantiles that are assigned to each entity. 
+        Index = probability, value = quantile, name = sorted characteristics
+    time_id : string
         Time dimension of the panel dataset. 
-    save_dir : path directory, Default=os.getcwd()
+    save_dir : path directory
         Directory where the results are saved.
 
     Returns
     -------
-    df_new: dataframe
-        Same dataframe as df but it has:
-            1. A new column that denotes the quantile of the 
-            firm characteristic in which each stock belongs.
+    df_c: dataframe
+        Same dataframe as df that contains the new portfolio column with
+        values 1 to n_portfolios for each entity based on the quantiles of 
+        the sorting characteristic per period.
 
     """
     
@@ -299,7 +249,7 @@ def AssignPortfolio(df, df_q, time_id = 'Date', save_dir = os.getcwd()):
         quantiles = df_q[date0]
         # Assign portfolios to all stocks of a given year/date
         date_idx = df_c[time_id] == date0
-        df_c.loc[date_idx, col_name] = AssignQuantile(quantiles = quantiles, data = df_c.loc[date_idx, firm_characteristic] )
+        df_c.loc[date_idx, col_name] = AssignQuantiles(data = df_c.loc[date_idx, firm_characteristic], quantiles = quantiles)
         
     
     return df_c 
@@ -321,7 +271,7 @@ class PortSort:
     def __init__(self, df, entity_id = None, time_id = None,  prefix_name = None,  save_dir = None):
 
         
-        self.entity_id = entity_id if entity_id is not None else 'PERMCO'
+        self.entity_id = entity_id if entity_id is not None else 'PERMNO'
         self.time_id = time_id if time_id is not None else 'Date'
         # Create a copy of the input dataframe df. Drop duplicate values and 
         # sort by ['entity_id', 'time_id'] to ensure that lagging or forwarding
@@ -397,9 +347,8 @@ class PortSort:
         
         
         # Prepare the data for sorting and define quantiles based on firm characteristic
-        df_trait, trait_q = PrepareForSorting(df, firm_characteristic, n_portfolios, \
-                                              lagged_periods, \
-                                              self.entity_id, self.time_id, \
+        df_trait, trait_q = PrepareForSorting(df, self.entity_id, self.time_id, \
+                                              firm_characteristic, lagged_periods, n_portfolios, \
                                               quantile_filter) 
         
         # Assign portfolio to each stock in our sample
@@ -509,7 +458,7 @@ class PortSort:
         # Create a copy of the original dataframe to be used for double sorting (_ss stands for single sorting) 
         df_ss = self.df.copy()
         # Apply the lagged_periods operator for firm_characteristic
-        df_ss[firm_char1] = df_ss.groupby(self.entity_id)[self.firm_characteristic].apply(lambda x: x.shift(self.lagged_periods))
+        df_ss[firm_char1] = df_ss.groupby(self.entity_id)[self.firm_characteristic].shift(self.lagged_periods)
        
         
         # Drop rows for null values in firm_chars and calibrate_cols
@@ -520,9 +469,9 @@ class PortSort:
             df_ss = df_ss.dropna(subset = firm_chars)
     
         # Sort 
-        self.single_sorted = self.Sort(df = df_ss, firm_characteristic = firm_char1, n_portfolios = self.n_portfolios, \
-                                       lagged_periods = 0, quantile_filter = self.quantile_filter,\
-                                        prefix_name = self.prefix_name, save_sort = save_SingleSort).reset_index(drop  = True)
+        self.single_sorted = self.Sort(df = df_ss, firm_characteristic = firm_char1, lagged_periods = 0, \
+                                       n_portfolios = self.n_portfolios, quantile_filter = self.quantile_filter,\
+                                       prefix_name = self.prefix_name, save_sort = save_SingleSort).reset_index(drop  = True)
     
     
     # ~~~~~~~~~~~~~~~~~~~~~~
@@ -631,8 +580,15 @@ class PortSort:
         
         # Conditional or unconditional sorting.
         self.conditional = conditional if conditional is not None else False
+        # Differentiate between conditional and unconditional sorts
+        # 'D' stands for dependent sorts
+        # 'I' stands for independent sorts
+        if self.conditional:
+            self.c1 = 'D'
+        else:
+            self.c1 = 'I'
         # Define the save_folder 
-        folder_name = '%dx%d_portfolios_SortedBy_%sand%s' % (self.num_portfolios, self.num_portfolios_2, \
+        folder_name = '%dx%d_%s_portfolios_SortedBy_%sand%s' % (self.num_portfolios, self.num_portfolios_2, self.c1, \
                                                                self.firm_characteristic, self.firm_characteristic_2)
         self.save_folder = os.path.join(self.save_dir, folder_name)
         if folder_name not in os.listdir(self.save_dir):
@@ -640,9 +596,6 @@ class PortSort:
         # Save results
         self.save_DoubleSort = save_DoubleSort 
         
-        # Function that defines the double sort portfolio column
-        def join_func(a,b):
-            return '_'.join([str(int(a)), str(int(b))])
         
         
         # Lag the two characteristics by lagged_periods so we can apply the Sort() function 
@@ -664,9 +617,9 @@ class PortSort:
         # Create a copy of the original dataframe to be used for double sorting (_ds stands for double sorting) 
         df_ds = self.df.copy()
         # Apply the lagged_periods operator for firm_characteristic
-        df_ds[firm_char1] = df_ds.groupby(self.entity_id)[self.firm_characteristic].apply(lambda x: x.shift(self.lagged_periods))
+        df_ds[firm_char1] = df_ds.groupby(self.entity_id)[self.firm_characteristic].shift(self.lagged_periods)
         # Apply the lagged_periods_2 operator for firm_characteristic_2
-        df_ds[firm_char2] = df_ds.groupby(self.entity_id)[self.firm_characteristic_2].apply(lambda x: x.shift(self.lagged_periods_2))
+        df_ds[firm_char2] = df_ds.groupby(self.entity_id)[self.firm_characteristic_2].shift(self.lagged_periods_2)
         
         # Drop rows for null values in firm_chars and calibrate_cols
         # Dataframe to be used in double sorting
@@ -676,52 +629,57 @@ class PortSort:
             df_ds = df_ds.dropna(subset = firm_chars)
         
 
+        # --------------------------------
+        # SORTING THE FIRST CHARACTERISTIC
+        # --------------------------------
         
+        # Single sort on firm_char1 with lagged_periods = 0 on df_ds
+        single_sorted = self.Sort(df_ds, firm_characteristic = firm_char1, lagged_periods = 0, \
+                                  n_portfolios = self.n_portfolios, quantile_filter = self.quantile_filter, \
+                                  save_sort = False)
+
+            
+        # --------------------------------
+        # SORTING THE FIRST CHARACTERISTIC
+        # --------------------------------
+        
+        # Second characteristic is dependent on the first.
         if self.conditional:
                                     
-            # Single sort on firm_char1 with lagged_periods = 0 on df_ds
-            single_sorted = self.Sort(df_ds, firm_characteristic = firm_char1, lagged_periods = 0, \
-                                      n_portfolios = self.n_portfolios, quantile_filter = self.quantile_filter, \
-                                      save_sort = False)
-
             # Double sort on firm_char2 with lagged periods = 0 on single_sorted dataframe
             double_sorted = single_sorted.groupby(self.portfolio).apply(lambda x:  self.Sort(x, \
                             firm_characteristic = firm_char2, lagged_periods = 0, n_portfolios = self.n_portfolios_2, \
                             quantile_filter = self.quantile_filter_2, save_sort = False) )
             # Reset the index
             double_sorted.reset_index(drop = True, inplace = True)
-                      
-
             # Define the double sort portfolio column
-            double_sorted['Double_sort_portfolio'] = double_sorted.apply(lambda x: join_func(x[self.portfolio], x[self.portfolio_2]), axis = 1)
-            
-            # Define double_sorted and sort again by entity and time.
-            self.double_sorted = double_sorted.sort_values(by = [self.entity_id, self.time_id])
-            
-            if self.save_DoubleSort:
-                filename = 'conditional_double_sort_on_%sand%s.csv' % (self.firm_characteristic, self.firm_characteristic_2)
-                self.double_sorted.to_csv(os.path.join(self.save_folder, filename), index = False)
+            double_sorted['Double_sort_portfolio'] = double_sorted[self.portfolio].astype(int).astype(str) + '_' + double_sorted[self.portfolio_2].astype(int).astype(str)                   
 
+
+        # Second characteristic is independent on the first.
         else:
             
-            # Apply self.Sort() two times in a row (nested functions)
-            double_sorted = self.Sort( self.Sort(df_ds, firm_char1, 0, self.n_portfolios, self.quantile_filter, \
-                                                 save_sort = False), \
-                                      firm_char2, 0, self.n_portfolios_2, self.quantile_filter_2, save_sort = False)
+            # Apply again self.Sort() 
+            double_sorted = self.Sort(single_sorted, firm_characteristic = firm_char2, lagged_periods = 0, n_portfolios = self.n_portfolios_2, \
+                            quantile_filter = self.quantile_filter_2, save_sort = False) 
                 
+            # Reset the index
+            double_sorted.reset_index(drop = True, inplace = True)
             # Define the double sort portfolio column
-            double_sorted['Double_sort_portfolio'] = double_sorted.apply(lambda x: join_func(x[self.portfolio], x[self.portfolio_2]), axis = 1)
-            
-            # Define double_sorted and sort again by entity and time.
-            self.double_sorted = double_sorted.sort_values(by = [self.entity_id, self.time_id]).reset_index(drop = True)
-                        
-            
-            if self.save_DoubleSort:
-                filename = 'unconditional_double_sort_on_%sand%s.csv' % (self.firm_characteristic, self.firm_characteristic_2)
-                self.double_sorted.to_csv(os.path.join(self.save_folder, filename), index = False)
+            double_sorted['Double_sort_portfolio'] = double_sorted[self.portfolio].astype(int).astype(str) + '_' + double_sorted[self.portfolio_2].astype(int).astype(str)                 
                 
+           
+           
 
+        # Define double_sorted and sort again by entity and time.
+        self.double_sorted = double_sorted.sort_values(by = [self.entity_id, self.time_id]).reset_index(drop = True)
+        
                 
+        # Save results
+        if self.save_DoubleSort:
+            filename = '%s.csv' % folder_name
+            self.double_sorted.to_csv(os.path.join(self.save_folder, filename), index = False)        
+        
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #       TripleSort           #
@@ -746,9 +704,14 @@ class PortSort:
             List elements are the portfolio quantiles for sorting (int or np.array)
         quantile_filters : list
             List elements are the quantile filters for the characteristics.           
-        conditional : boolean, Default=False
-            If True, the second sort is conditional on the first. 
-            If False, the sorts are indepedent. 
+        conditional : list, Default=[False, False]
+            It is a list of boolean values. Let A, B, C be the three firm characteristics 
+            and '+' and '|' denote intersection and conditionality of sets, respectively. 
+            Then the interpretation of condtional is the following:
+                [True, True]   = C|B|A
+                [True, False]  = (C+B)|A
+                [False, True]  = C|(A+B)
+                [False, False] = A+B+C
         calibrate_cols : list, Default=None
             Only entities that have non-null values of calibrate_cols, are sorted based on 
             their firm_characteristics. We restrict the set of characteristics that need to be 
@@ -846,10 +809,21 @@ class PortSort:
       
         
         # Conditional or unconditional sorting.
-        self.conditional = conditional if conditional is not None else False
+        self.conditional = conditional if conditional is not None else [False, False]
+        # Differentiate between conditional and unconditional sorts.
+        # 'D' stands for dependent/conditional
+        # 'I' stands for indepedent/unconditional
+        if self.conditional[0]:
+            self.c1 = 'D'
+        else:
+            self.c1 = 'I'
+        if self.conditional[1]:
+            self.c2 = 'D'
+        else:
+            self.c2 = 'I'
         # Define the save_folder 
-        folder_name = '%dx%dx%d_portfolios_SortedBy_%sand%sand%s' % (self.num_portfolios, self.num_portfolios_2, \
-                                                               self.num_portfolios_3, self.firm_characteristic, \
+        folder_name = '%dx%dx%d_%sx%s_portfolios_SortedBy_%sand%sand%s' % (self.num_portfolios, self.num_portfolios_2, \
+                                                               self.num_portfolios_3, self.c1, self.c2, self.firm_characteristic, \
                                                                self.firm_characteristic_2, self.firm_characteristic_3)
         self.save_folder = os.path.join(self.save_dir, folder_name)
         if folder_name not in os.listdir(self.save_dir):
@@ -857,17 +831,19 @@ class PortSort:
         self.save_TripleSort = save_TripleSort 
         
         
-        # Function that defines the double sort portfolio
-        def join_func(a,b):
-            return '_'.join([str(int(a)), str(int(b))])
         
-        # Function that defines the triple sort portfolio from double and and single
-        def join_func2(a,b):
-            return '_'.join([str(a), str(int(b))])
-        
-        # Function that defines the triple sort portfolio from single portfolios
-        def join_func3(a,b,c):
-            return '_'.join([str(int(a)), str(int(b)), str(int(c))])
+        # Function that combines two double sorted portfolio and defines the (C+B)|A case
+        def combineTF(x, y):
+            # Isolate the first sort on A 
+            first_x = x.split('_')[0]
+            first_y = y.split('_')[0]
+            # They have to be the same. In our case they will always be.
+            if first_x == first_y:
+                # Isolate the second sorts of B|A and C|A
+                second_x = x.split('_')[1]
+                second_y = y.split('_')[1]
+                # define the triple sort (C+B)|A
+                return first_x+'_'+second_x+'_'+second_y
         
         
         # Lag the three characteristics by lagged_periods so we can apply the Sort() function 
@@ -895,11 +871,11 @@ class PortSort:
         # Create a copy of the original dataframe to be used for triple sorting (_ts stands for triple sorting)
         df_ts = self.df.copy()
         # Apply the lagged_periods operator for firm_characteristic
-        df_ts[firm_char1] = df_ts.groupby(self.entity_id)[self.firm_characteristic].apply(lambda x: x.shift(self.lagged_periods))
+        df_ts[firm_char1] = df_ts.groupby(self.entity_id)[self.firm_characteristic].shift(self.lagged_periods)
         # Apply the lagged_periods_2 operator for firm_characteristic_2
-        df_ts[firm_char2] = df_ts.groupby(self.entity_id)[self.firm_characteristic_2].apply(lambda x: x.shift(self.lagged_periods_2))
+        df_ts[firm_char2] = df_ts.groupby(self.entity_id)[self.firm_characteristic_2].shift(self.lagged_periods_2)
          # Apply the lagged_periods_3 operator for firm_characteristic_3
-        df_ts[firm_char3] = df_ts.groupby(self.entity_id)[self.firm_characteristic_3].apply(lambda x: x.shift(self.lagged_periods_3))
+        df_ts[firm_char3] = df_ts.groupby(self.entity_id)[self.firm_characteristic_3].shift(self.lagged_periods_3)
         
         # Drop rows for null values in firm_chars
         # Dataframe to be used in triple sorting
@@ -907,30 +883,58 @@ class PortSort:
             df_ts = df_ts.dropna(subset = firm_chars + self.calibrate_cols)
         else:
             df_ts = df_ts.dropna(subset = firm_chars)
-        
-        
-        # Check for conditional sort or not
-        if self.conditional:
             
-            
-            # Single sort on firm_char1 with lagged_periods = 0 on df_ts
-            single_sorted = self.Sort(df_ts, firm_characteristic = firm_char1, lagged_periods = 0, \
-                                      n_portfolios = self.n_portfolios, quantile_filter = self.quantile_filter,\
-                                      save_sort = False)
+   
+         
 
+        # --------------------------------
+        # SORTING THE FIRST CHARACTERISTIC
+        # --------------------------------
+        
+        # Single sort on firm_char1 with lagged_periods = 0 on df_ts
+        single_sorted = self.Sort(df_ts, firm_characteristic = firm_char1, lagged_periods = 0, \
+                                  n_portfolios = self.n_portfolios, quantile_filter = self.quantile_filter,\
+                                  save_sort = False)
+            
+        # ---------------------------------
+        # SORTING THE SECOND CHARACTERISTIC
+        # ---------------------------------       
+        
+        # First boolean value is True
+        if self.conditional[0]:
+            
             # Double sort on firm_char2 with lagged periods = 0 on single_sorted dataframe
             double_sorted = single_sorted.groupby(self.portfolio).apply(lambda x:  self.Sort(x, \
                             firm_characteristic = firm_char2, lagged_periods = 0, \
                             n_portfolios = self.n_portfolios_2, quantile_filter = self.quantile_filter_2, \
-                            save_sort = False) )
-            # Reset the index
+                            save_sort = False) )     
+                
+            # Reset the index of double_sorted dataframe
             double_sorted.reset_index(drop=True, inplace = True)
             
-            
-            
             # Define the double sort portfolio column
-            double_sorted['Double_sort_portfolio'] = double_sorted.apply(lambda x: join_func(x[self.portfolio], x[self.portfolio_2]), axis = 1)
+            double_sorted['Double_sort_portfolio'] = double_sorted[self.portfolio].astype(int).astype(str) + '_' + double_sorted[self.portfolio_2].astype(int).astype(str)  
+
+        # First boolean value of False            
+        else:
             
+            double_sorted = self.Sort(single_sorted, firm_characteristic = firm_char2, lagged_periods = 0, \
+                            n_portfolios = self.n_portfolios_2, quantile_filter = self.quantile_filter_2, \
+                            save_sort = False)
+                            
+            # Define the double sort portfolio column
+            double_sorted['Double_sort_portfolio'] = double_sorted[self.portfolio].astype(int).astype(str) + '_' + double_sorted[self.portfolio_2].astype(int).astype(str)  
+            
+            
+
+        # --------------------------------
+        # SORTING THE THIRD CHARACTERISTIC
+        # --------------------------------      
+        
+        # Second boolean value is True
+        if self.conditional[1]:    
+            
+            # Cases of [True, True] = C|B|A or [False, True] = C|(A+B)
             
             # Triple sort on firm_char3 with lagged periods = 0 on double_sorted dataframe
             triple_sorted = double_sorted.groupby('Double_sort_portfolio').apply(lambda x:  self.Sort(x, \
@@ -940,40 +944,66 @@ class PortSort:
             # Reset the index
             triple_sorted.reset_index(drop = True, inplace = True)
             
-
             # Define the triple sort portfolio column
-            triple_sorted['Triple_sort_portfolio'] = triple_sorted.apply(lambda x: join_func2(x['Double_sort_portfolio'], x[self.portfolio_3]), axis = 1)
+            triple_sorted['Triple_sort_portfolio'] = triple_sorted['Double_sort_portfolio'] + '_' + triple_sorted[self.portfolio_3].astype(int).astype(str)
                              
-
-            # Define triple_sorted and sort again by entity and time.
-            self.triple_sorted = triple_sorted.sort_values(by = [self.entity_id, self.time_id])
-            
-            if self.save_TripleSort:
-                filename = 'conditional_triple_sort_on_%s_and_%s_and_%s.csv' % (self.firm_characteristic, \
-                                                                                self.firm_characteristic_2,\
-                                                                                self.firm_characteristic_3)
-                self.triple_sorted.to_csv(os.path.join(self.save_folder, filename), index = False)
-
+        # Second boolean value is False
         else:
-            # Apply self.Sort() three times in a row (nested functions)
-            triple_sorted = self.Sort( self.Sort( self.Sort(df_ts, firm_char1, 0, self.n_portfolios, save_sort = False), firm_char2, \
-                                       0, self.n_portfolios_2, save_sort = False), firm_char3, 0, self.n_portfolios_3, \
-                                       save_sort = False)
-   
+            
+            # Case of [True, False] = (C+B)|A
+            if self.conditional[0]:
                 
-            # Define triple sort portfolio columns
-            triple_sorted['Triple_sort_portfolio'] = triple_sorted.apply(lambda x: join_func3(x[self.portfolio], x[self.portfolio_2], x[self.portfolio_3]), axis = 1)
-              
-            # Define triple_sorted and sort again by entity and time.
-            self.triple_sorted = triple_sorted.sort_values(by = [self.entity_id, self.time_id]).reset_index(drop = True)
-                        
+                """
+                The True-False case is tricky, because it corresponds to the creation of intersection
+                of sets of characteristics B and C after conditioning on A; (C+B)|A or C|A + B|A.
+                Thus the operation should not be on the double sort portfolio but rather first on A 
+                to create C|A and another 'Double_sort_portfolio_2' column. Then we need to combine
+                the two double sort portfolio columns:
+                'Double_sort_portfolio' -> B|A and 
+                'Double_sort_portfolio' -> C|A
+                to get the true triple sort portfolio for the configuration (C+B)|A. 
+                """
+            
+                # C|A 
+                # Double sort on firm_char3 with lagged periods = 0 on single_sorted dataframe
+                triple_sorted = double_sorted.groupby(self.portfolio).apply(lambda x:  self.Sort(x, \
+                                firm_characteristic = firm_char3, lagged_periods = 0, \
+                                n_portfolios = self.n_portfolios_3, quantile_filter = self.quantile_filter_3, \
+                                save_sort = False) )     
                     
-            if self.save_TripleSort:
-                filename = 'unconditional_double_sort_on_%sand%sand%s.csv' % (self.firm_characteristic, \
-                                                                              self.firm_characteristic_2,\
-                                                                              self.firm_characteristic_3)
-                self.triple_sorted.to_csv(os.path.join(self.save_folder, filename), index = False)
+                # Reset the index of triple_sorted dataframe
+                triple_sorted.reset_index(drop=True, inplace = True)
+                # Define the second double sort portfolio column
+                triple_sorted['Double_sort_portfolio_2'] = triple_sorted[self.portfolio].astype(int).astype(str) + '_' + triple_sorted[self.portfolio_3].astype(int).astype(str)
+        
+                          
+                # B|A + C|A 
+                # Define the triple sort portfolio column (apply lambda cannot be avoided)
+                triple_sorted['Triple_sort_portfolio'] = triple_sorted.apply(lambda x: combineTF(x['Double_sort_portfolio'], x['Double_sort_portfolio_2']), axis = 1)
                 
+            
+            # Case of [False, False] = A+B+C
+            else:
+                
+                # Independent sort
+                triple_sorted = self.Sort(double_sorted, firm_characteristic = firm_char3, lagged_periods = 0, \
+                            n_portfolios = self.n_portfolios_3, quantile_filter = self.quantile_filter_3, \
+                            save_sort = False)
+                # Define the triple sort portfolio column
+                triple_sorted['Triple_sort_portfolio'] = triple_sorted['Double_sort_portfolio'] + '_' + triple_sorted[self.portfolio_3].astype(int).astype(str)
+
+
+                    
+        # Define triple_sorted and sort again by entity and time.
+        self.triple_sorted = triple_sorted.sort_values(by = [self.entity_id, self.time_id]).reset_index(drop = True)
+        
+        
+        # Save results
+        if self.save_TripleSort:
+            filename = '%s.csv' % folder_name                                                                     
+            self.triple_sorted.to_csv(os.path.join(self.save_folder, filename), index = False)
+            
+            
         
     
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1221,8 +1251,8 @@ class PortSort:
     # Function that generates the weighted average returns of portfolios of entities that have been sorted 
     # by their characteristics. 
     def FFPortfolios(self, ret_data, ret_time_id, FFcharacteristics, FFlagged_periods, \
-                 FFn_portfolios, FFquantile_filters, FFdir = None, FFconditional = False, weight_col = None, \
-                  return_col = 'RET', market_cap_cols = [], FFsave = False):
+                 FFn_portfolios, FFquantile_filters, FFdir = None, FFconditional = None, \
+                 weight_col = None, return_col = 'RET', market_cap_cols = [], FFsave = False):
         """
         
         Parameters
@@ -1247,9 +1277,14 @@ class PortSort:
             be the same as that of firm_characteristics.
         FFdir : directory
             Saving directory.
-        FFconditional: boolean, Default=False
-            If True, all sorts are conditional. If False, all sorts are unonconditional and 
-            independent of each other. 
+        FFconditional: list, Default=None
+            It is a list of boolean values. Let A, B, C be the three firm characteristics 
+            and '+' and '|' denote intersection and conditionality of sets, respectively. 
+            Then the interpretation of condtional is the following:
+                [True, True]   = C|B|A
+                [True, False]  = (C+B)|A
+                [False, True]  = C|(A+B)
+                [False, False] = A+B+C
         weight_col : str, Default=None
             The column used for weighting the returns in a portfolio. If weight_col is None,
             the portfolios are equal-weighted.
@@ -1273,7 +1308,11 @@ class PortSort:
             Dataframe with columns = portfolios, index = ret_time_id, values = returns
         FFnum_stocks : DataFrame
             Dataframe with columns = portfolios, index = ret_time_id, values = number of stocks in each portfolio
-                
+        FFclass : PortSort class
+        FFturnover : Dataframe
+            Dataframe with columns = portfolios, index = time_id, values = portfolio turnover
+        FFturnover_raw : DataFrame
+            Raw turnover dataframe
         
         """
         
@@ -1285,7 +1324,13 @@ class PortSort:
         self.FFn_portfolios = FFn_portfolios
         self.FFquantile_filters = FFquantile_filters
         self.FFdir = FFdir if FFdir is not None else self.save_dir
-        self.FFconditional = FFconditional
+        if FFconditional is None:
+            if len(FFcharacteristics) == 2:            
+                self.FFconditional = [False]
+            if len(FFcharacteristics) == 3:      
+                self.FFconditional = [False, False]
+        else:
+            self.FFconditional = FFconditional
         self.weight_col = weight_col
         self.return_col = return_col
         self.market_cap_cols = market_cap_cols
@@ -1298,15 +1343,29 @@ class PortSort:
         # Create a new PortSort class with df = firmchars
         FFclass = PortSort(df = firmchars, entity_id = self.entity_id, time_id = self.time_id, \
                            prefix_name = self.prefix_name, save_dir = self.save_dir)
-    
-        # weight_col as the calibration column if not None
-        # return_col is added to the calibration columns only when the
-        # portfolio rebalancing and the stock retrun frequency are the same.
+        """
+        CALIBRATING 
+        -----------
+        weight_col as the calibration column if not None
+        return_col is added to the calibration columns only when the
+        portfolio rebalancing and the stock retrun frequency are the same.
+        Of course, the return_col has to be in the columns of firmchars.
+        """
+        
+        # Portfolio rebalancing and characteristics have the same frequency
         if self.time_id == self.ret_time_id:            
             if self.weight_col is not None: 
-                FFcalibrate_col = [self.weight_col, self.return_col]
+                if self.return_col in firmchars:
+                    FFcalibrate_col = [self.weight_col, self.return_col]
+                else:
+                    FFcalibrate_col = [self.weight_col]
+            # weight_col is None
             else:
-                FFcalibrate_col = [self.return_col]
+                if self.return_col in firmchars:
+                    FFcalibrate_col = [self.return_col]
+                else:
+                    FFcalibrate_col = None
+        # Portfolio rebalancing and characteristics do not have the same frequency
         else:
             if self.weight_col is not None: 
                 FFcalibrate_col = [self.weight_col]
@@ -1355,7 +1414,7 @@ class PortSort:
             # Double sort
             FFclass.DoubleSort(firm_characteristics = self.FFcharacteristics, lagged_periods = self.FFlagged_periods,\
                             n_portfolios = self.FFn_portfolios, quantile_filters = self.FFquantile_filters, \
-                            conditional = self.FFconditional, calibrate_cols = FFcalibrate_col, save_DoubleSort = self.FFsave)   
+                            conditional = self.FFconditional[0], calibrate_cols = FFcalibrate_col, save_DoubleSort = self.FFsave)   
             
             # Isolate only the essential columns for portfolio assignment
             port_name = 'Double_sort_portfolio'
@@ -1392,9 +1451,10 @@ class PortSort:
     
             
             # Define save names
-            save_str =  '%dx%dx%d_portfolios_sortedBy_%sand%sand%s.csv' % ( FFclass.num_portfolios, \
+            save_str =  '%dx%dx%d_%sx%s_portfolios_sortedBy_%sand%sand%s.csv' % ( FFclass.num_portfolios, \
                                                                         FFclass.num_portfolios_2, \
                                                                         FFclass.num_portfolios_3, \
+                                                                        FFclass.c1, FFclass.c2, \
                                                                         self.FFcharacteristics[0], \
                                                                         self.FFcharacteristics[1],\
                                                                         self.FFcharacteristics[2])
@@ -1489,12 +1549,12 @@ class PortSort:
             # Define the portfolio holding columns
             for x in portfolio_cols:
                 # End of period portfolio holding
-                if len(FFcharacteristics) == 1:            
+                if len(FFcharacteristics) == 1:      
                     df_s[x] = df_s[port_name].apply(lambda y: 1 if y == float(x) else 0)
                 else:
                     df_s[x] = df_s[port_name].apply(lambda y: 1 if y == x else 0) 
                 # Next period portfolio holding
-                df_s[x+'_for1'] = df_s.groupby(self.entity_id)[x].apply(lambda x: x.shift(-1)).fillna(value = 0)  
+                df_s[x+'_for1'] = df_s.groupby(self.entity_id)[x].shift(-1).fillna(value = 0)  
        
             """
             STEP 2 : Old and new weights in a period t    
@@ -1509,7 +1569,6 @@ class PortSort:
             the portfolio strategy at then end of period t for the duration of period t+1. 
             """
 
-            # -----------------------------------------
               
             # Not equal-weighting scheme
             if self.weight_col is not None:
@@ -1521,7 +1580,7 @@ class PortSort:
                 # Normalize
                 df_s['Old_weights'] = df_s.groupby([port_name, self.time_id])['Old_weights_raw'].transform(lambda x: x/x.sum())
                 # New weights : weights at the end of the period t after rebalancing
-                df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].apply(lambda x: x.shift(-1))
+                df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].shift(-1)
                 df_s['New_weights'].fillna(value = 0, inplace = True)
             # Equal-weighting scheme
             else:
@@ -1533,7 +1592,7 @@ class PortSort:
                 # Normalize
                 df_s['Old_weights'] = df_s.groupby([port_name, self.time_id])['Old_weights_raw'].transform(lambda x: x/x.sum())
                 # New weights : weights at the end of the period t after rebalancing
-                df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].apply(lambda x: x.shift(-1))
+                df_s['New_weights'] = df_s.groupby(self.entity_id)['Start_weights'].shift(-1)
                 df_s['New_weights'].fillna(value = 0, inplace = True)
                 
                 
@@ -1563,7 +1622,7 @@ class PortSort:
             Define the portfolio turnover dataframe  of period t as the sum of the absolute value of the 'dWeight'
             columns.
             """
-    
+            
             turnover = df_s.groupby(by = self.time_id)[[x+'_dWeight' for x in portfolio_cols]].apply(lambda x: x.abs().sum())   
             # Rename the columns
             turnover.columns = [x.replace('_dWeight', '') for x in turnover.columns]
