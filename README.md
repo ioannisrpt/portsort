@@ -1,11 +1,11 @@
 # PortSort
-The PortSort class enables single, double or triple sorting of entities in portfolios. Aggregation on a variable of interest is possible
-in the single sort regime only. Construction of portfolios based on firm characteristics is possible with the FFPortfolios() method.
+The PortSort class enables single, double or triple sorting of entities in portfolios. Construction of portfolios
+based on firm characteristics is possible with the ff_portfolios() method.
 Sorts can be conditional or uncondtional or a mix of both in triple sorting.  
 
 # How to install 
 ```python
-pip install PortSort
+pip install portsort
 ```
 
 
@@ -52,9 +52,9 @@ os.chdir(wdir)
 
 
 # Import the PortSort class. For more details: 
-# https://github.com/ioannisrpt/PortSort.git 
-# pip install PortSort 
-from PortSort import PortSort as ps
+# https://github.com/ioannisrpt/portsort.git 
+# pip install portsort 
+from portsort import portsort as ps
 
 
 # Import FirmCharacteristics table (annual frequency)
@@ -82,47 +82,46 @@ portchar = ps.PortSort(df = firmchars,
                        save_dir = wdir)
 
 
+# -------------
+# single_sort()
+# -------------
 
-# ------------
-# SingleSort()
-# ------------
-
-# Single Sort stocks into quintile portfolios based on  the market capitalization 
-# of the last business day of the previous year ('CAP')
-portchar.SingleSort(firm_characteristic = 'CAP', 
+# Single sort stocks into quintile portfolios based on  the market 
+# capitalization of the last business day of the previous year ('CAP')
+portchar.single_sort(firm_characteristic = 'CAP', 
                     lagged_periods = 1, 
                     n_portfolios = 5)
 print(portchar.single_sorted.head(20))
 
 
-# Single Sort stocks into 3 portfolios (30%, 40% 30%) based on the market capitalization 
-# of the last business day of the previous year ('CAP').
+# Single sort stocks into 3 portfolios (30%, 40% 30%) based on the market 
+# capitalization of the last business day of the previous year ('CAP').
 # NYSE breakpoints for size are used.
-portchar.SingleSort(firm_characteristic = 'CAP', 
+portchar.single_sort(firm_characteristic = 'CAP', 
                     lagged_periods = 1, 
                     n_portfolios = np.array([0, 0.3, 0.7]), 
                     quantile_filter = ['EXCHCD', 1])
 print(portchar.single_sorted.head(20))
 
 
-# ------------
-# DoubleSort()
-# ------------
+# -------------
+# double_sort()
+# -------------
 
-# Double Sort stocks unconditionally into 5x2 portfolios based on the market capitalization 
-# of the last business day of the previous year ('CAP') and the total annual return 
-# of the past year ('RET_total').
-portchar.DoubleSort(firm_characteristics = ['CAP', 'RET_total'], 
+# Double sort stocks unconditionally into 5x2 portfolios based on the market
+# capitalization of the last business day of the previous year ('CAP') and the 
+# total annual return of the past year ('RET_total').
+portchar.double_sort(firm_characteristics = ['CAP', 'RET_total'], 
                     lagged_periods = [1,1], 
                     n_portfolios = [5,2])
 print(portchar.double_sorted.head(20))
 
 
-# Double Sort stocks conditionally into 3x2 portfolios based on  the market capitalization 
-# of the last business day of the previous year ('CAP') and the total annual return 
-# of the past year ('RET_total').
+# Double sort stocks conditionally into 3x2 portfolios based on  the market 
+# capitalization of the last business day of the previous year ('CAP') and the
+# total annual return of the past year ('RET_total').
 # NYSE breakpoints for size are used.
-portchar.DoubleSort(firm_characteristics = ['CAP', 'RET_total'], 
+portchar.double_sort(firm_characteristics = ['CAP', 'RET_total'], 
                     lagged_periods = [1,1], 
                     n_portfolios = [np.array([0, 0.3, 0.7]), 2],
                     quantile_filters = [['EXCHCD', 1], None], 
@@ -131,15 +130,17 @@ print(portchar.double_sorted.head(20))
 
 
 
-# ------------
-# TripleSort()
-# ------------
+# -------------
+# triple_sort()
+# -------------
 
-# Triple Sort stocks unconditionally into 2x2x2 portfolios based on  the market capitalization 
-# of the last business day of the previous year ('CAP'), total annual return ('RET_total')
-# and daily median spread percentage ('SPREAD_PC_median') of the past year.
-# NYSE breakpoitns are used for size and spread percentage but not for total return.
-portchar.TripleSort(firm_characteristics = ['CAP', 'RET_total', 'SPREAD_PC_median'], 
+# Triple Sort stocks unconditionally into 2x2x2 portfolios based on  the market
+# capitalization of the last business day of the previous year ('CAP'), total 
+# annual return ('RET_total') and daily median spread percentage 
+# ('SPREAD_PC_median') of the past year.
+# NYSE breakpoitns are used for size and spread percentage 
+# but not for total return.
+portchar.triple_sort(firm_characteristics=['CAP', 'RET_total', 'SPREAD_PC_median'], 
                     lagged_periods = [1,1,1], 
                     n_portfolios = [2,2,2], 
                     quantile_filters = [['EXCHCD', 1], None, ['EXCHCD', 1]])
@@ -147,16 +148,18 @@ print(portchar.triple_sorted.head(20))
 
 
 # Triple Sort stocks into 2x2x2 portfolios based on  the market capitalization 
-# of the last business day of the previous year ('CAP'), total annual return ('RET_total')
-# and daily median spread percentage ('SPREAD_PC_median') of the past year.
-# First stocks are uncondtionally sorted by size and total annual return and then
-# within these portfolios they are conditionally sorted by spread.
+# of the last business day of the previous year ('CAP'), total annual return 
+# ('RET_total') and daily median spread percentage ('SPREAD_PC_median') of the 
+# past year.
+# First stocks are uncondtionally sorted by size and total annual return and 
+# then within these portfolios they are conditionally sorted by spread.
 # If A, B, C are the characteristics in that order and '+', '|' correspond
-# to intersection and conditionality of sets, then conditional = [False, True] is 
-# equivalent to  C|(A+B).
-# Type help(ps.PortSort.TripleSort) for more details.
-# NYSE breakpoitns are used for size and spread percentage but not for total return.
-portchar.TripleSort(firm_characteristics = ['CAP', 'RET_total', 'SPREAD_PC_median'], 
+# to intersection and conditionality of sets, then conditional = [False, True] 
+# is equivalent to  C|(A+B).
+# Type help(PortSort.triple_sort) for more details.
+# NYSE breakpoitns are used for size and spread percentage 
+# but not for total return.
+portchar.triple_sort(firm_characteristics=['CAP', 'RET_total', 'SPREAD_PC_median'], 
                     lagged_periods = [1,1,1], 
                     n_portfolios = [2,2,2], 
                     quantile_filters = [['EXCHCD', 1], None, ['EXCHCD', 1]],
@@ -165,15 +168,17 @@ print(portchar.triple_sorted.head(20))
 
 
 # Triple Sort stocks into 2x2x2 portfolios based on  the market capitalization 
-# of the last business day of the previous year ('CAP'), total annual return ('RET_total')
-# and daily median spread percentage ('SPREAD_PC_median') of the past year.
-# Entities conditional on size, are then sorted into 2x2 unconditional return and 
-# spread portfolios. If A, B, C are the characteristics in that exact order and
+# of the last business day of the previous year ('CAP'), total annual return 
+# ('RET_total') and daily median spread percentage ('SPREAD_PC_median') of the
+# past year. Entities conditional on size, are then sorted into 2x2 
+# unconditional return and spread portfolios. 
+# If A, B, C are the characteristics in that exact order and
 # '+', '|' correspond to intersection and conditionality of sets, 
 # then conditional = [True, False] is  equivalent to (B + C)| A. 
-# Type help(ps.PortSort.TripleSort) for more details.
-# NYSE breakpoitns are used for size and spread percentage but not for total return.
-portchar.TripleSort(firm_characteristics = ['CAP', 'RET_total', 'SPREAD_PC_median'], 
+# Type help(PortSort.triple_sort) for more details.
+# NYSE breakpoitns are used for size and spread percentage 
+# but not for total return.
+portchar.triple_sort(firm_characteristics=['CAP', 'RET_total', 'SPREAD_PC_median'], 
                     lagged_periods = [1,1,1], 
                     n_portfolios = [2,2,2], 
                     quantile_filters = [['EXCHCD', 1], None, ['EXCHCD', 1]],
@@ -181,95 +186,100 @@ portchar.TripleSort(firm_characteristics = ['CAP', 'RET_total', 'SPREAD_PC_media
 print(portchar.triple_sorted.head(20))
 
 
-# --------------
-# FFPortfolios()
-# --------------
+# ---------------
+# ff_portfolios()
+# ---------------
 
 
-# Monthly returns of 10 value-weighted portfolios on size ('CAP'). NYSE breakpoints are used.
-portchar.FFPortfolios(ret_data = crspm,
+# Monthly returns of 10 value-weighted portfolios on size ('CAP'). 
+# NYSE breakpoints are used.
+portchar.ff_portfolios(ret_data = crspm,
                       ret_time_id = 'date_m',
-                      FFcharacteristics = ['CAP'], 
-                      FFlagged_periods = [1], 
-                      FFn_portfolios = [5], 
-                      FFquantile_filters = [['EXCHCD',1]], 
+                      ff_characteristics = ['CAP'], 
+                      ff_lagged_periods = [1], 
+                      ff_n_portfolios = [10], 
+                      ff_quantile_filters = [['EXCHCD',1]], 
                       weight_col = 'CAP_W', 
                       return_col = 'RET', 
-                      FFsave = True)
-print(portchar.FFportfolios.head(30))
-print(portchar.FFnum_stocks)
+                      ff_save = True)
+print(portchar.portfolios.head(30))
+print(portchar.num_stocks)
 
 
-# Monthly returns of 3x2 value-weighted portfolios on size ('CAP') and liquidity ('SPREAD_PC_median').
+# Monthly returns of 3x2 value-weighted portfolios on size ('CAP') and 
+# liquidity ('SPREAD_PC_median').
 # The sort is unconditional and NYSE breakpoints are used for size. 
 # By specifying the market_cap_cols, the portfolio turnover is also returned.
-# market_cap_cols is a list = [capitalization of the stock at the end of the previous period, 
-#                              capitalization of the stock at the ned of the current period]
-portchar.FFPortfolios(ret_data = crspm, 
+# market_cap_cols is a list =
+# [capitalization of the stock at the end of the previous period, 
+# capitalization of the stock at the ned of the current period]
+portchar.ff_portfolios(ret_data = crspm, 
                       ret_time_id = 'date_m', 
-                      FFcharacteristics = ['CAP', 'SPREAD_PC_median'], 
-                      FFlagged_periods = [1, 1],
-                      FFn_portfolios = [np.array([0, 0.3, 0.7]),2], 
-                      FFquantile_filters = [['EXCHCD',1], None],
-                      FFconditional = [False], 
+                      ff_characteristics = ['CAP', 'SPREAD_PC_median'], 
+                      ff_lagged_periods = [1, 1],
+                      ff_n_portfolios = [np.array([0, 0.3, 0.7]),2], 
+                      ff_quantile_filters = [['EXCHCD',1], None],
+                      ff_conditional = [False], 
                       weight_col = 'CAP_W', 
                       return_col = 'RET', 
                       market_cap_cols = ['CAP_W', 'CAP'],
-                      FFsave = True)
-print(portchar.FFportfolios.head(30))
-print(portchar.FFnum_stocks)
-print(portchar.FFturnover)
+                      ff_save = True)
+print(portchar.portfolios.head(30))
+print(portchar.num_stocks)
+print(portchar.turnover)
 print('The raw dataframe used to calculate turnover: \n')
-print(portchar.FFturnover_raw)
+print(portchar.turnover_raw.head(20))
 
 
 
     
-# Monthly returns of 2x2x2 value-weighted portfolios on size ('CAP'),liquidity ('SPREAD_PC_median') and 
-# annual returns ('RET_total') of the previous year.
-# The sorts are all conditional (the order matters) and NYSE breakpoints are used for size.
-portchar.FFPortfolios(ret_data = crspm,
+# Monthly returns of 2x2x2 value-weighted portfolios on size ('CAP'), 
+# liquidity ('SPREAD_PC_median') and annual returns ('RET_total') of the
+# previous year. 
+# The sorts are all conditional (the order matters).
+# NYSE breakpoints are used only for size.
+portchar.ff_portfolios(ret_data = crspm,
                       ret_time_id = 'date_m', 
-                      FFcharacteristics = ['CAP', 'SPREAD_PC_median', 'RET_total'], 
-                      FFlagged_periods = [1,1,1], 
-                      FFn_portfolios = [2,2,2], 
-                      FFquantile_filters = [['EXCHCD',1], None, None],
-                      FFconditional = [True, True], 
+                      ff_characteristics = ['CAP', 'SPREAD_PC_median', 'RET_total'], 
+                      ff_lagged_periods = [1,1,1], 
+                      ff_n_portfolios = [2,2,2], 
+                      ff_quantile_filters = [['EXCHCD',1], None, None],
+                      ff_conditional = [True, True], 
                       weight_col = 'CAP_W', 
                       return_col = 'RET', 
                       market_cap_cols = ['CAP_W', 'CAP'],
-                      FFsave = True)
-print(portchar.FFportfolios.head(30))
-print(portchar.FFnum_stocks)    
-print(portchar.FFturnover)
+                      ff_save = True)
+print(portchar.portfolios.head(30))
+print(portchar.num_stocks)    
+print(portchar.turnover)
 
 
 
 
-# Monthly returns of 2x2x2 value-weighted portfolios on size ('CAP'),liquidity ('SPREAD_PC_median') and 
-# annual returns ('RET_total') of the previous year.
-# Entities conditional on size, are then sorted into 2x2 unconditional return and 
-# spread portfolios. If A, B, C are the characteristics in that exact order and
+# Monthly returns of 2x2x2 value-weighted portfolios on size ('CAP'),
+# liquidity ('SPREAD_PC_median') and annual returns ('RET_total') of the 
+# previous year.
+# Entities conditional on size, are then sorted into 2x2 unconditional return 
+# and spread portfolios. 
+# If A, B, C are the characteristics in that exact order and
 # '+', '|' correspond to intersection and conditionality of sets, 
 # then conditional = [True, False] is  equivalent to (B + C)| A. 
-# Type help(ps.PortSort.TripleSort) for more details.
-# The sorts are all conditional (the order matters) and NYSE breakpoints are used for size.
-portchar.FFPortfolios(ret_data = crspm,
+# Type help(PortSort.ff_portfolios) for more details.
+# NYSE breakpoints are used for size.
+portchar.ff_portfolios(ret_data = crspm,
                       ret_time_id = 'date_m', 
-                      FFcharacteristics = ['CAP', 'SPREAD_PC_median', 'RET_total'], 
-                      FFlagged_periods = [1,1,1], 
-                      FFn_portfolios = [2,2,2], 
-                      FFquantile_filters = [['EXCHCD',1], None, None],
-                      FFconditional = [True, False], 
+                      ff_characteristics=['CAP', 'SPREAD_PC_median', 'RET_total'], 
+                      ff_lagged_periods = [1,1,1], 
+                      ff_n_portfolios = [2,2,2], 
+                      ff_quantile_filters = [['EXCHCD',1], None, None],
+                      ff_conditional = [True, False], 
                       weight_col = 'CAP_W', 
                       return_col = 'RET', 
                       market_cap_cols = ['CAP_W', 'CAP'],
-                      FFsave = True)
-print(portchar.FFportfolios.head(30))
-print(portchar.FFnum_stocks)    
-print(portchar.FFturnover)
-
-
+                      ff_save = True)
+print(portchar.portfolios.head(30))
+print(portchar.num_stocks)    
+print(portchar.turnover)
 ```
 
 
