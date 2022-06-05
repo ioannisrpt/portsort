@@ -4,6 +4,9 @@
 # Author: Ioannis Ropotos
 
 """
+
+Updated at 5 Jun 2022
+
 Class: 
 ------
     PortSort
@@ -14,33 +17,43 @@ Class:
         single_sort()     
         double_sort()       
         triple_sort()
+        augment_last_traded()
         ff_portfolios()
         
-        Version 0.4.0 - 1 Jun 2022
+        Version 0.2.4 - 5 Jun 2022
+        
+        i. PortSort() is augmented with augment_last_traded() which allows
+        the creation of placeholder rows for securities that are delisted but 
+        are used for sorting. If we do not take delistings into account, 
+        we introduce a look-ahead bias in our portfolios.
+        ii. Fixed a bug that did not account for ff_quantile_filters in
+        ff_portfolios().
+        
+        Version 0.2.3 - 1 Jun 2022
         
         i. Code is re-written according to PEP 8 guidelines.
         ii. The weights for averaging returns are calculated and 
         applied correctly at the start of the rebalancing period.
-        iii. ff_portfolios() is augmented with the capability of creating
-        placeholder rows for securities that are delisted but are used
-        for sorting. If we do not take delistings into account, we introduce
-        a look-ahead bias in our portfolios.
+        Now the calculation is accounting correctly for 
+        delisted stock returns. The use of 'weighted_mean' is abolished.     
         
-        Version 0.3.1 - 19 Feb 2022
+        
+        19 Feb 2022
         
         i. All processes are vectorized. All unecessary apply lambda operations
         have been replaced. The sort function and the PortSort sorting methods 
-        are now 10 times faster. FFPortfolios() method is now 3-5 times faster.
+        are now 10 times faster. ff_portfolios() method is now 3-5 times faster.
         
         
-        Version 0.2.7 - 14 Feb 2022
+        14 Feb 2022
 
         
         i. Conditional sorts can now be in the form of TF=[True, False], TT, 
-        FT, FF in the triple sort procedure.          
+        FT, FF in the triple sort procedure. Their definition is given 
+        in the docstrings of triple_sort() and ff_portfolios().
         ii. Fixed a potential bug in calibrating the return_col in 
-        FFportfolios().
-        iii. WeightedMean function ignores nan values in both the aggregated 
+        ff_portfolios().
+        iii. 'weighted_mean' function ignores nan values in both the aggregated 
         column x and the weight column weights. 
 """
 
@@ -324,6 +337,7 @@ class PortSort:
                    )
         self.prefix_name = prefix_name if prefix_name is not None else ''
         self.save_dir = save_dir if save_dir is not None else os.getcwd()
+        self.df_aug = None
 
 
 
@@ -1283,6 +1297,99 @@ class PortSort:
             self.triple_sorted.to_csv(fpath, index = False)
             
 
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~
+    #  augment_last_traded  # 
+    # ~~~~~~~~~~~~~~~~~~~~~~~
+    
+    def augment_last_traded(self,
+                            ret_data,
+                            ret_time_id,
+                            col_w='CAP',
+                            col_w_lagged_periods=1,
+                            fill_cols=None):
+        """
+        Augment entity characteristics dataset with the last traded time_id
+        of an entity as found in ret_data.
+
+        Parameters
+        ----------
+        ret_data : Dataframe
+            Dataframe where returns for entities are stored in a panel format.
+        ret_time_id : str
+            Time identifier as found in ret_data. ret_time_id dictates the
+            frequency for which the portfolio returns are calculated.
+        col_w : str, default 'CAP'
+            Name of colum from which the portfolio weights are to be computed.
+            We use the market capitalization 'CAP' as our default.
+        col_w_lagged_periods : int, default 1
+            The number of periods for which col_w is to be lagged. 
+            We use the last period (time_id) value of col_w to get the 
+            weight column denoted as weight_col.
+        fill_cols : list of str, optional
+            A list of characteristics that are assumed to be invariant in the 
+            last traded date. For example, ['EXCHCD', 'SHRCD', 'PERMCO', 'GVKEY'].
+
+        Returns
+        -------
+        df_aug : DataFrame
+            The entity characterics dataset df augmented with the last period
+            (time_id) for which an entity(security) is found(traded) so that
+            delisted securities are accounted for.
+        """
+        
+        self.ret_data = ret_data
+        self.ret_time_id = ret_time_id
+        self.col_w = col_w
+        self.col_w_lagged_periods = col_w_lagged_periods
+        self.fill_cols = fill_cols 
+        
+        # Sort by entity_id and ret_time_id
+        self.ret_data = (
+                        self.ret_data
+                        .sort_values(by = [self.entity_id, self.ret_time_id])
+                        )
+        # Use the sorted values to isolate the last traded ret_time_id.
+        last_traded = (
+                        self.ret_data
+                        .drop_duplicates(subset=[self.entity_id], keep='last')
+                        .reset_index(drop = True)
+                        )
+         
+        # Define ret_time_id if it doesn't exist
+        # The definition in our case is trivial, ret_time_id = time_id
+        if ret_time_id not in self.df.columns:
+            self.df[self.ret_time_id] = self.df[self.time_id]
+        # Concat with firm characteristics dataframe
+        self.df_aug = pd.concat([self.df, last_traded], axis = 0)
+        # Sort by entity_id, time_id and ret_time_id
+        self.df_aug = (
+            self.df_aug
+            .sort_values(by=[self.entity_id, self.time_id, self.ret_time_id], ignore_index=True)
+            )
+        # Drop duplicates per ret_time_id/entity_id pairs and keep the first observation
+        self.df_aug = (
+            self.df_aug
+            .drop_duplicates(subset=[self.entity_id, self.time_id], keep='first')
+            )
+        
+        # Use the fill_cols list to fill essential information
+        # that is missing from the last_traded observations.
+        if self.fill_cols is not None:
+            self.df_aug[self.fill_cols] = (
+                                        self.df_aug
+                                        .groupby(self.entity_id)[self.fill_cols]
+                                        .fillna(method = 'ffill')
+                                        )
+               
+        # Re-define col_w for the last traded periods (time_id)
+        weight_col = '_'.join([self.col_w, 'W'])
+        self.df_aug[weight_col] = (
+                                    self.df_aug
+                                    .groupby(self.entity_id)[col_w]
+                                    .shift(self.col_w_lagged_periods)
+                                    )
+    
     
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #      ff_portfolios         #
@@ -1381,9 +1488,12 @@ class PortSort:
         self.ff_characteristics = ff_characteristics
         self.ff_lagged_periods = ff_lagged_periods
         self.ff_n_portfolios = ff_n_portfolios
-        self.ff_quantile_filters = [None]*len(self.ff_characteristics)
-        if ff_conditional is None and len(ff_characteristics)>1:
-            self.ff_conditional = [False]*(len(self.ff_characteristics)-1)
+        self.ff_quantile_filters = ff_quantile_filters        
+        if ff_conditional is None:
+            if len(ff_characteristics) == 2:            
+                self.ff_conditional = [False]
+            if len(ff_characteristics) == 3:      
+                self.ff_conditional = [False, False]
         else:
             self.ff_conditional = ff_conditional
         self.weight_col = weight_col
@@ -1393,8 +1503,12 @@ class PortSort:
         self.ff_save = ff_save
         
         
-        # Create a copy of the original FirmCharacteristics dataframe
-        firmchars = self.df.copy()
+        # If the augmented entity characteristics dataset (df_aug) exists, 
+        # then use it. Otherwise, use df. 
+        if self.df_aug is not None:
+            firmchars = self.df_aug.copy()
+        else:
+            firmchars = self.df.copy()
         
         # Create a new PortSort class with df = firmchars
         ff_class = PortSort(df=firmchars, 
@@ -1774,9 +1888,9 @@ class PortSort:
             # Raw turnover dataframe
             self.turnover_raw = df_s
         
-        
-        # Number of stocks in a portfolio
-        # -------------------------------
+        # -----------------------------
+        # NUMBER OF STOCKS IN PORTFOLIO
+        # -----------------------------
         num_stocks = (
                         ports
                         .groupby(by = [port_name, self.time_id] )[port_name]
@@ -1785,10 +1899,26 @@ class PortSort:
                         )        
         self.num_stocks = num_stocks
         
-        
-        # Portfolio weighted-average returns
+        # ----------------------------------
+        # PORTFOLIO WEIGHTED-AVERAGE RETURNS
         # ----------------------------------
         
+        
+        # Define the proper weights using weight_col
+        if self.weight_col is None:
+            ports['proper_W'] = (
+                            ports
+                            .groupby([port_name, self.time_id])[self.entity_id]
+                            .transform(lambda x: 1/x.count() )
+                             )
+        else:
+            ports['proper_W'] = (
+                            ports
+                            .groupby([port_name, self.time_id])[self.weight_col]
+                            .transform(lambda x: x/x.sum())
+                            )
+            
+    
         # The inner merging is taking care of stocks that should be excluded
         # from the formation of the portfolios.
         ret_ports = pd.merge(self.ret_data, 
@@ -1798,29 +1928,17 @@ class PortSort:
                              suffixes = ('', '_2'))
 
         
+
+        # Mulitply returns with proper weights
+        ret_ports['RET*W'] = ret_ports[self.return_col]*ret_ports['proper_W']
         # Weighted average portfolio returns
-        if self.weight_col is None:
-            char_ports = (
-                ret_ports
-                .groupby([port_name, self.ret_time_id])[self.return_col]
-                .mean()
-                .unstack(level=0)
-                )
-        else:
-            # Define the proper weights using weight_col
-            ret_ports['proper_W'] = (
-                        ret_ports                
-                        .groupby([port_name, self.time_id])[self.weight_col]
-                        .transform(lambda x: x/x.sum() )
-                        )
-            # Multiply returns with proper weights
-            ret_ports['RET*W'] = ret_ports[self.return_col]*ret_ports['proper_W']
-            char_ports = (
-                ret_ports
-                .groupby([port_name, self.ret_time_id])['RET*W']
-                .sum()
-                .unstack(level=0)
-                )
+        char_ports = (
+            ret_ports
+            .groupby([port_name, self.ret_time_id])['RET*W']
+            .sum()
+            .unstack(level=0)
+            )
+        
                        
         self.portfolios = char_ports
             
@@ -1833,8 +1951,8 @@ class PortSort:
         # SAVE RESULTS
         # ------------
                 
-        char_ports.to_csv(os.path.join(ff_class.save_folder, save_ret ))
-        num_stocks.to_csv(os.path.join(ff_class.save_folder, save_num ))
+        char_ports.to_csv(os.path.join(ff_class.save_folder, save_ret))
+        num_stocks.to_csv(os.path.join(ff_class.save_folder, save_num))
         
         
 
