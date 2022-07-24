@@ -5,7 +5,7 @@
 
 """
 
-Updated at 5 Jun 2022
+Updated at 3 Jul 2022
 
 Class: 
 ------
@@ -19,6 +19,19 @@ Class:
         triple_sort()
         augment_last_traded()
         ff_portfolios()
+        
+        Version 0.2.5 - 3 Jul 2022
+        
+        i. augment_last_traded() has now an extra argument 
+        col_w_suffix that controls the suffix in the name 
+        of col_w column. For example, if col_w_suffix = '_weight'
+        and col_w = 'CAP', then the resulting weighting column 
+        would be 'CAP_weight'.
+        ii. The portfolio turnover calculation has been re-written
+        elegantly with fewer lines. 
+        iii. Now ff_save argument of ff_portfolios() works.
+        iv. When return DataFrame is imported/used in PortSort,
+        any row that has at least one null value is dropped.
         
         Version 0.2.4 - 5 Jun 2022
         
@@ -1307,6 +1320,7 @@ class PortSort:
                             ret_time_id,
                             col_w='CAP',
                             col_w_lagged_periods=1,
+                            col_w_suffix = 'W',
                             fill_cols=None):
         """
         Augment entity characteristics dataset with the last traded time_id
@@ -1326,6 +1340,10 @@ class PortSort:
             The number of periods for which col_w is to be lagged. 
             We use the last period (time_id) value of col_w to get the 
             weight column denoted as weight_col.
+        col_w_suffix : str, default='_W'
+            The suffix by which the col_w column is augmented for the 
+            naming of final weighting column. If col_w = 'CAP' and 
+            col_w_suffix = 'W', then the weighting column would be 'CAP_W'.
         fill_cols : list of str, optional
             A list of characteristics that are assumed to be invariant in the 
             last traded date. For example, ['EXCHCD', 'SHRCD', 'PERMCO', 'GVKEY'].
@@ -1342,11 +1360,13 @@ class PortSort:
         self.ret_time_id = ret_time_id
         self.col_w = col_w
         self.col_w_lagged_periods = col_w_lagged_periods
+        self.col_w_suffix = col_w_suffix
         self.fill_cols = fill_cols 
         
         # Sort by entity_id and ret_time_id
         self.ret_data = (
                         self.ret_data
+                        .dropna()
                         .sort_values(by = [self.entity_id, self.ret_time_id])
                         )
         # Use the sorted values to isolate the last traded ret_time_id.
@@ -1383,7 +1403,7 @@ class PortSort:
                                         )
                
         # Re-define col_w for the last traded periods (time_id)
-        weight_col = '_'.join([self.col_w, 'W'])
+        weight_col = '_'.join([self.col_w, self.col_w_suffix])
         self.df_aug[weight_col] = (
                                     self.df_aug
                                     .groupby(self.entity_id)[col_w]
@@ -1418,6 +1438,7 @@ class PortSort:
         -----------
         ret_data : Dataframe
             Dataframe where returns for entities are stored in a panel format.
+            Any row with null values is dropped.
         ret_time_id : str
             Time identifier as found in ret_data. ret_time_id dictates the
             frequency for which the portfolio returns are calculated.
@@ -1483,7 +1504,7 @@ class PortSort:
         """
         
         # Instance variables
-        self.ret_data = ret_data
+        self.ret_data = ret_data.dropna()
         self.ret_time_id = ret_time_id
         self.ff_characteristics = ff_characteristics
         self.ff_lagged_periods = ff_lagged_periods
@@ -1660,8 +1681,27 @@ class PortSort:
                     )
             save_ret = 'RET_' + save_str
             save_num = 'NUM_STOCKS_' + save_str
-                
-
+         
+            
+        # -------
+        # WEIGHTS
+        # -------
+        
+        
+        # Define the proper weights using weight_col
+        if self.weight_col is None:
+            ports['proper_W'] = (
+                            ports
+                            .groupby([port_name, self.time_id])[self.entity_id]
+                            .transform(lambda x: 1/x.count() )
+                             )
+        else:
+            ports['proper_W'] = (
+                            ports
+                            .groupby([port_name, self.time_id])[self.weight_col]
+                            .transform(lambda x: x/x.sum())
+                            )
+            
 
 
         # --------
@@ -1684,6 +1724,7 @@ class PortSort:
         # Check if market_cap_cols is empty
         if len(market_cap_cols) == 0:
             # No turnover is calculated
+            self.turnover_cols = None
             self.turnover = None
             self.turnover_raw = None
         # Check if market_cap_cols has the correct information
@@ -1696,197 +1737,95 @@ class PortSort:
             cap_end = market_cap_cols[1]
             self.cap_end = cap_end
             
-            """
-            STEP 0 : Isolate only the essential columns
-            -------------------------------------------
-            We do not need all the columns of the characteristic sorted 
-            dataframe resulted from the definition of the FFclass. We only 
-            need to isolate the time-entity pair, the weight column (if any)
-            and the market_cap_cols
-            """
             
-            # Union of weight column and market capitilization columns
-            turnover_cols = list(set( [self.weight_col] + market_cap_cols ))
-            # Columns to isolate from sorted DataFrame with or without 
-            # weight_col.
-            withW_cols = [self.time_id, self.entity_id, port_name] + turnover_cols
-            noW_cols = [self.time_id, self.entity_id, port_name] + market_cap_cols
+            # Hidden DataFrame : hdf
+            # -----------------------
             
+            # Columns needed to calculate turnover
+            if self.weight_col is None:
+                turnover_cols = [self.time_id, self.entity_id, port_name] + \
+                                self.market_cap_cols
+            else: 
+                # Include the weight_col
+                turnover_cols = [self.time_id, self.entity_id, port_name] + \
+                                list(set([self.weight_col] + self.market_cap_cols))
+                                
+            self.turnover_cols = turnover_cols
             
-            if self.weight_col is not None:
-                if len(self.ff_characteristics) == 1:
-                    df_s = ff_class.single_sorted[withW_cols].copy()
-                if len(self.ff_characteristics) == 2:
-                    df_s = ff_class.double_sorted[withW_cols].copy()
-                if len(self.ff_characteristics) == 3:
-                    df_s = ff_class.triple_sorted[withW_cols].copy()
-            else:            
-                if len(self.ff_characteristics) == 1:
-                    df_s = ff_class.single_sorted[noW_cols].copy()
-                if len(self.ff_characteristics) == 2:
-                    df_s = ff_class.double_sorted[noW_cols].copy()
-                if len(self.ff_characteristics) == 3:
-                    df_s = ff_class.triple_sorted[noW_cols].copy()
-
-            
-            
-
-
-            """
-            STEP 1 : Portfolio columns for holdings 
-            -----------------------------------------
-            The current and next period holdings of the constructed portfolios 
-            are tracked for each period at the entity level. Two sets of 
-            columns are created. The first set is the current period holdings
-            denoted by the names of the portfolios and it has a value of 1 if 
-            an entity belongs to that portfolio and 0 otherwise. The second set
-            is the next period holdings denoted by the names of the portfolios
-            augmented with the suffix '_for1' (forward one period ahead) and 
-            it has the value of 1 if an entity belongs to the portfolio in the 
-            next period and 0 otherwise.
-            """
-            
-            portfolio_cols = list(
-                df_s[port_name].value_counts().sort_index().index.values
-                )
-            # Convert to string
-            if len(ff_characteristics) == 1:
-                portfolio_cols = [ str(int(x)) for x in portfolio_cols]
-            else:
-                portfolio_cols = [ x for x in portfolio_cols]            
-            
-            # Define the portfolio holding columns
-            for x in portfolio_cols:
-                # End of period portfolio holding
-                if len(ff_characteristics) == 1:      
-                    df_s[x] = (
-                                df_s[port_name]
-                                .apply(lambda y: 1 if y == float(x) else 0)
-                                )
-                else:
-                    df_s[x] = (
-                                df_s[port_name]
-                                .apply(lambda y: 1 if y == x else 0) 
-                                )
-                # Next period portfolio holding
-                df_s[x+'_for1'] = (
-                                    df_s
-                                    .groupby(self.entity_id)[x]
-                                    .shift(-1)
-                                    .fillna(value = 0)  
-                                    )
-       
-            """
-            STEP 2 : Old and new weights in a period t    
-            ------------------------------------------
-            First, the entity weights of each portfolio at the start of each 
-            period t are explicitly computed and denoted as 'Start_weights'.
-            Then, the current and previous end-of-period t market 
-            capitalization of the entity as in market_cap_cols, are used 
-            to construct the 'Old_weights' as 'Start_weights'
-            *( current end-of-period cap)/(previous end-of-period cap). 
-            The 'Old_weights' column contains the weights in the portfolios 
-            after the period t has passed and these are the weigths we need to
-            rebalance to hold the portfolio for the next period t+1. 
-            The 'New_weights' are the one-period lagged 'Start_weights' of
-            period t+1 that are going to be used to construct the portfolio 
-            strategy at then end of period t for the duration of period t+1(. 
-            """
-
-              
-            # Not equal-weighting scheme
-            if self.weight_col is not None:
-                # Start_weights : weights at the start of the period t
-                df_s['Start_weights'] = (
-                        df_s
-                        .groupby([port_name, self.time_id])[self.weight_col]
-                        .transform(lambda x: x/x.sum() )
-                        )
-                # Old weights : weights at the end of the period t before rebalancing
-                df_s['Old_weights_raw'] =  df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
-                df_s['Old_weights_raw'].fillna(value = 0, inplace = True)
-                # Normalize
-                df_s['Old_weights'] = (
-                        df_s
-                        .groupby([port_name, self.time_id])['Old_weights_raw']
-                        .transform(lambda x: x/x.sum())
-                        )
-                # New weights : weights at the end of the period t after rebalancing
-                df_s['New_weights'] = (
-                    df_s.groupby(self.entity_id)['Start_weights'].shift(-1)
-                    )
-                df_s['New_weights'].fillna(value = 0, inplace = True)
-            # Equal-weighting scheme
-            else:
-                # Start_weights : weights at the start of the period t
-                df_s['Start_weights'] = (
-                        df_s
+            # Define hdf from ff_class
+            if len(self.ff_characteristics) == 1:
+                hdf = ff_class.single_sorted[turnover_cols].copy()
+            if len(self.ff_characteristics) == 2:
+                hdf = ff_class.double_sorted[turnover_cols].copy()
+            if len(self.ff_characteristics) == 3:
+                hdf = ff_class.triple_sorted[turnover_cols].copy()
+                
+            # Define the proper weights using weight_col
+            if self.weight_col is None:
+                hdf['proper_W'] = (
+                        hdf
                         .groupby([port_name, self.time_id])[self.entity_id]
-                        .transform(lambda x: 1/x.count() )
+                        .transform(lambda x: 1/x.count())
+                         )
+            else:
+                hdf['proper_W'] = (
+                        hdf
+                        .groupby([port_name, self.time_id])[self.weight_col]
+                        .transform(lambda x: x/x.sum())
                         )
-                # Old weights : weights at the end of the period t before rebalancing
-                df_s['Old_weights_raw'] =  (
-                        df_s['Start_weights']*df_s[cap_end]/df_s[cap_start]
-                    )
-                df_s['Old_weights_raw'].fillna(value = 0, inplace = True)
-                # Normalize
-                df_s['Old_weights'] = (
-                        df_s
+
+                        
+            # Weights at the end of the period defined by time_id
+            # -- This is the only problematic part of the calculation.
+            # Ideally a delisted return should be used.
+            hdf['Old_weights_raw'] = (
+                                    hdf['proper_W']*
+                                    (hdf[self.cap_end]/hdf[self.cap_start])
+                                    )
+            # Fill null values with 0. Null value means that the stock was
+            # delisted during the period defined by time_id. Thus we pay 
+            # nothing to rebalance and we forget about it. 
+            hdf['Old_weights_raw'].fillna(value = 0, inplace = True)
+            
+            # Normalize the Old_weights -- Why are there null values after 
+            # this operation?
+            hdf['Old_weights'] = (
+                        hdf
                         .groupby([port_name, self.time_id])['Old_weights_raw']
                         .transform(lambda x: x/x.sum())
                         )
-                # New weights : weights at the end of the period t after rebalancing
-                df_s['New_weights'] = (
-                    df_s.groupby(self.entity_id)['Start_weights'].shift(-1)
-                    )
-                df_s['New_weights'].fillna(value = 0, inplace = True)
-                
-                
-
-
-            """
-            STEP 3 - Weight change from period t to the next period t+1
-            ------------------------------------------------------------
-            We now track the weight change of each entity in the portfolios 
-            of FFclass. The formula is 
-            New_weights*(current period t portfolio holding) 
-            - Old_weights*(next period t+1 portfolio holding).
-            There are 3 distinct cases:
-                1. Entity i stays in the same portfolio from period t to t+1: 
-                    w_{t+1} - w_{t+}
-                2. Entity i is added in the portfolio from period t to t+1:
-                    w_{t+1} - 0 = w_{t+1}
-                3. Entity i is removed from the portfolio in period t+1:
-                    0 - w_{t+} = - w_{t+}
-            """
-                        
-            # Define the weight change of an entity from end of period t to 
-            # the start of period t+1
-            for x in portfolio_cols:
-                df_s[x+'_dWeight'] = (
-                                        df_s['New_weights']*df_s[x+'_for1'] 
-                                        - df_s['Old_weights']*df_s[x]
-                                        )
-                                    
-
-
-            """
-            STEP 4 - Turnover dataframe
-            ----------------------------
-            Define the portfolio turnover dataframe  of period t as the sum 
-            of the absolute value of the 'dWeight' columns.
-            """
             
-            turnover = (
-                df_s
-                .groupby(by = self.time_id)[[x+'_dWeight' for x in portfolio_cols]]
-                .apply(lambda x: x.abs().sum())   
-                )
-            # Rename the columns
-            turnover.columns = [x.replace('_dWeight', '') for x in turnover.columns]
-            self.turnover = turnover    
-            # Raw turnover dataframe
-            self.turnover_raw = df_s
+            # To my knowledge, these null values should not be happening
+            # so I correct for them nevertherless.
+            hdf['Old_weights'].fillna(value=0, inplace = True)
+            
+            # Define the New_weights that are nothing more than the proper_W 
+            # one period ahead.
+            hdf['New_weights'] = (
+                                 hdf
+                                 .groupby(self.entity_id)['proper_W']
+                                 .shift(-1)
+                                 )
+            hdf['New_weights'].fillna(value = 0, inplace = True)
+            
+                       
+            # Calculate the difference in weight
+            hdf['dWeight'] = hdf['New_weights'] - hdf['Old_weights']
+            # Absolute value of the difference
+            hdf['dWeight_abs'] = np.abs(hdf['dWeight'])
+            
+            # Calculate turnover
+            self.turnover = (
+                            hdf
+                            .groupby([self.time_id, port_name])['dWeight_abs']
+                            .sum()
+                            .unstack(level = 1)
+                            )
+            
+            # Save raw turnover dataframe
+            self.turnover_raw = hdf
+                                  
+
         
         # -----------------------------
         # NUMBER OF STOCKS IN PORTFOLIO
@@ -1903,22 +1842,7 @@ class PortSort:
         # PORTFOLIO WEIGHTED-AVERAGE RETURNS
         # ----------------------------------
         
-        
-        # Define the proper weights using weight_col
-        if self.weight_col is None:
-            ports['proper_W'] = (
-                            ports
-                            .groupby([port_name, self.time_id])[self.entity_id]
-                            .transform(lambda x: 1/x.count() )
-                             )
-        else:
-            ports['proper_W'] = (
-                            ports
-                            .groupby([port_name, self.time_id])[self.weight_col]
-                            .transform(lambda x: x/x.sum())
-                            )
             
-    
         # The inner merging is taking care of stocks that should be excluded
         # from the formation of the portfolios.
         ret_ports = pd.merge(self.ret_data, 
@@ -1950,9 +1874,11 @@ class PortSort:
         #-------------
         # SAVE RESULTS
         # ------------
+        
+        if self.ff_save:
                 
-        char_ports.to_csv(os.path.join(ff_class.save_folder, save_ret))
-        num_stocks.to_csv(os.path.join(ff_class.save_folder, save_num))
+            char_ports.to_csv(os.path.join(ff_class.save_folder, save_ret))
+            num_stocks.to_csv(os.path.join(ff_class.save_folder, save_num))
         
         
 
