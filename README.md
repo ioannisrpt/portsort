@@ -186,6 +186,30 @@ portchar.triple_sort(firm_characteristics=['CAP', 'RET_total', 'SPREAD_PC_median
 print(portchar.triple_sorted.head(20))
 
 
+# ---------------------
+# augment_last_traded()
+# ---------------------
+
+
+# First we adjust for delisted returns during the calendar
+# year. PortSort handles the firm characteristics and the
+# return dataframe separately and only merge them together
+# at the very end for the calculation of portfolio returns.
+# As such, we need to augment the characteristics dataset
+# with the data for stocks that are delisted but need to be
+# included in the sorting procedure. augment_last_traded()
+# method allows for that adjustment while it fills the extra
+# rows with the weighting variable 'CAP_W' and the exchange
+# market 'EXCHCD'. If we don't adjust for the delistings,
+# our results will suffer from look-ahead bias.
+portchar.augment_last_traded(ret_data = crspm,
+                            ret_time_id = 'date_m',
+                            col_w='CAP',
+                            col_w_lagged_periods=1,
+                            col_w_suffix = 'W',
+                            fill_cols=['EXCHCD'])
+
+
 # ---------------
 # ff_portfolios()
 # ---------------
@@ -227,7 +251,7 @@ portchar.ff_portfolios(ret_data = crspm,
 print(portchar.portfolios.head(30))
 print(portchar.num_stocks)
 print(portchar.turnover)
-print('The raw dataframe used to calculate turnover: \n')
+print('Acess the explicit portfolio weights of the stocks: \n')
 print(portchar.turnover_raw.head(20))
 
 
